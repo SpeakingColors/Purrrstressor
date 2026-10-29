@@ -18,6 +18,10 @@ Status: test builds. DSP core, native editor and presets are in; still to do: te
 - Bypass that keeps the gain reduction meter moving, 14 factory presets, your own presets as files
 - Three colour looks, info bubbles, resizable window (drag any edge, double-click the wood to reset)
 
+## Manual
+
+[Manual (PDF)](https://github.com/SpeakingColors/Purrrstressor/blob/main/docs/Purrrstressor-manual.pdf) with a numbered tour of every control. The web page is `docs/index.html` (enable GitHub Pages from `/docs` to host it).
+
 ## Build
 
 ```

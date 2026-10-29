@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
-project(Purrrstressor VERSION 0.1.0)
+# The release workflow passes the tag as PURR_VERSION so menu, installer and release agree.
+set(PURR_VERSION "0.1.0" CACHE STRING "Plugin version")
+project(Purrrstressor VERSION ${PURR_VERSION})
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
