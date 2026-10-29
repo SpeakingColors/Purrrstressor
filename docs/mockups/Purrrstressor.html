@@ -204,15 +204,19 @@ const RAT=[1,2,3,4,6,10,20,100], KNEE=[0,30,20,12,8,4,.5,.5], THR=-18, OPTO=5;
 const RLAB=['1:1','2:1','3:1','4:1','6:1','10:1','20:1','Nuke'];
 function grTarget(L,ri){const R=RAT[ri],w=KNEE[ri],over=L-THR;if(2*over<-w)return 0;let out;
  if(2*Math.abs(over)<=w){const k=over+w*.5;out=L+(1/R-1)*k*k/(2*w)}else out=THR+over/R;return Math.max(0,L-out)}
+function grFb(outDb,ri){const R=RAT[ri],T=THR,w=KNEE[ri]||0.5,start=T-.5*w;if(outDb<=start)return 0;const d=outDb-start,a=(1/R-1)/(2*w),dEnd=w*(.5+.5/R);let inDb;
+ if(d>=dEnd)inDb=T+(outDb-T)*R;else{const disc=Math.max(0,1+4*a*d);const u=Math.abs(a)<1e-9?d:(-1+Math.sqrt(disc))/(2*a);inDb=start+u}
+ return Math.min(60,Math.max(0,inDb-outDb))}
 class Engine{
- constructor(){this.fs=48000;this.p={inputDb:0,outputDb:0,attackMs:10,releaseMs:200,ratioIndex:3,detHP:false,detBand:false,link:true,audioHP:false,dist:0,headroomDb:16,mix:1,bypass:false,autoTrim:false,levelMatch:false};
+ constructor(){this.fs=48000;this.p={inputDb:0,outputDb:0,attackMs:10,releaseMs:200,ratioIndex:3,detHP:false,detBand:false,link:true,audioHP:false,dist:0,headroomDb:16,mix:1,bypass:false,autoTrim:false,levelMatch:false,detFB:false};
   this.detHP=[new OP(),new OP()];this.detBand=[new BQ(),new BQ()];this.audHP=[new BHP3(),new BHP3()];
-  this.trimLin=1;this.lm=1;this.eD=0;this.eW=0;this.gr=[0,0];this.grPk=0;this.curIn=1;this.curOut=1;this.dcX=[0,0];this.dcY=[0,0];this.inPk=0;this.outPk=0;this.setP(this.p);this.prepare(48000)}
+  this.yPrev=[0,0];this.trimLin=1;this.lm=1;this.eD=0;this.eW=0;this.gr=[0,0];this.grPk=0;this.curIn=1;this.curOut=1;this.dcX=[0,0];this.dcY=[0,0];this.inPk=0;this.outPk=0;this.setP(this.p);this.prepare(48000)}
  prepare(fs){this.fs=fs;this.sc=1-Math.exp(-1/(0.010*fs));this.dcR=1-6.283185*10/fs;
   for(let c=0;c<2;c++){this.detHP[c].set(fs,100);this.detBand[c].peak(fs,6000,.7,9);this.audHP[c].set(fs,60)}this.setP(this.p);this.curIn=this.tIn;this.curOut=this.tOut}
  setP(np){const p=Object.assign(this.p,np);p.attackMs=Math.min(30,Math.max(.05,p.attackMs));p.releaseMs=Math.min(3500,Math.max(50,p.releaseMs));
-  this.tIn=D2L(Math.min(30,Math.max(0,p.inputDb)));this.tOut=D2L(Math.min(24,Math.max(-24,p.outputDb)));this.aAtk=Math.exp(-1/(p.attackMs*0.001*this.fs))}
- smooth(cur,t,ri){if(t>cur)return t+this.aAtk*(cur-t);let r=this.p.releaseMs;if(ri===OPTO)r*=1+4.7*Math.min(cur/20,1);return t+Math.exp(-1/(r*0.001*this.fs))*(cur-t)}
+  this.tIn=D2L(Math.min(30,Math.max(0,p.inputDb)));this.tOut=D2L(Math.min(24,Math.max(-24,p.outputDb)));this.aAtk=Math.exp(-1/(p.attackMs*(p.ratioIndex>=1&&p.ratioIndex<=3?.5:1)*0.001*this.fs))}
+ tgt(L,ri){return this.p.detFB?grFb(L,ri):grTarget(L,ri)}
+ smooth(cur,t,ri){const kMax=this.p.detFB?1/RAT[ri]:1;if(t>cur)return cur+(t-cur)*Math.min(1-this.aAtk,kMax);let r=this.p.releaseMs;if(ri===OPTO)r*=1+4.7*Math.min(cur/20,1);return cur+(t-cur)*Math.min(1-Math.exp(-1/(r*0.001*this.fs)),kMax)}
  dist(x,g,c){const p=this.p,lf=.4+.6*Math.min(g,20)/20,d=D2L(p.headroomDb-16),a2=(p.dist===1?.15:.05)*lf*d;let y=x+a2*x*x;
   if(p.dist===2){const b=.3*lf*d*d,lim=.9/Math.sqrt(3*b),xc=Math.min(lim,Math.max(-lim,y));y=xc-b*xc*xc*xc}
   const o=y-this.dcX[c]+this.dcR*this.dcY[c];this.dcX[c]=y;this.dcY[c]=o;return o}
@@ -220,15 +224,14 @@ class Engine{
   for(let i=0;i<n;i++){this.curIn+=(Math.abs(this.tIn-this.curIn)<1e-7)?(this.tIn-this.curIn):(this.tIn-this.curIn)*this.sc;
    this.curOut+=(Math.abs(this.tOut-this.curOut)<1e-7)?(this.tOut-this.curOut):(this.tOut-this.curOut)*this.sc;
    const dry=[L[i],R[i]];ip=Math.max(ip,Math.abs(dry[0]),Math.abs(dry[1]));
-   if(p.bypass){this.gr[0]=this.gr[1]=0;op=Math.max(op,Math.abs(dry[0]),Math.abs(dry[1]));continue}
    const x=[dry[0]*this.curIn,dry[1]*this.curIn],lv=[0,0];
-   for(let c=0;c<2;c++){let d=x[c];if(p.detHP)d=this.detHP[c].p(d);if(p.detBand)d=this.detBand[c].p(d);lv[c]=L2D(Math.abs(d))}
-   if(comp){if(p.link){this.gr[0]=this.smooth(this.gr[0],grTarget(Math.max(lv[0],lv[1]),ri),ri);this.gr[1]=this.gr[0]}
-    else{this.gr[0]=this.smooth(this.gr[0],grTarget(lv[0],ri),ri);this.gr[1]=this.smooth(this.gr[1],grTarget(lv[1],ri),ri)}}else this.gr[0]=this.gr[1]=0;
+   for(let c=0;c<2;c++){let d=p.detFB?this.yPrev[c]:x[c];if(p.detHP)d=this.detHP[c].p(d);if(p.detBand)d=this.detBand[c].p(d);lv[c]=L2D(Math.abs(d))}
+   if(comp){if(p.link){this.gr[0]=this.smooth(this.gr[0],this.tgt(Math.max(lv[0],lv[1]),ri),ri);this.gr[1]=this.gr[0]}
+    else{this.gr[0]=this.smooth(this.gr[0],this.tgt(lv[0],ri),ri);this.gr[1]=this.smooth(this.gr[1],this.tgt(lv[1],ri),ri)}}else this.gr[0]=this.gr[1]=0;
    gm=Math.max(gm,this.gr[0],this.gr[1]);
-   for(let c=0;c<2;c++){let y=x[c]*D2L(-this.gr[c]);if(p.dist)y=this.dist(y,this.gr[c],c);if(p.audioHP)y=this.audHP[c].p(y);let w=y*this.curOut;if(p.levelMatch){const k=1-Math.exp(-1/(1.0*this.fs));this.eD+=(dry[c]*dry[c]-this.eD)*k;this.eW+=(w*w-this.eW)*k;if(this.eD>1e-9&&this.eW>1e-9){const t=Math.min(16,Math.max(.0625,Math.sqrt(this.eD/this.eW)));this.lm+=(t-this.lm)*(1-Math.exp(-1/(2.0*this.fs)))}w*=this.lm}
-    let o=p.mix>=1?w:(p.mix<=0?dry[c]:dry[c]*(1-p.mix)+w*p.mix);if(!isFinite(o)){this.reset();o=0}if(p.autoTrim){o*=this.trimLin;const a=Math.abs(o);if(a>=1)this.trimLin*=0.98855/a}ch[c][i]=o;op=Math.max(op,Math.abs(o))}}
-  this.grPk=p.bypass?0:gm;this.inPk=Math.max(ip,this.inPk*Math.pow(.9,n/512));this.outPk=Math.max(op,this.outPk*Math.pow(.9,n/512));this.grNow=this.gr[0];this.lastIn=ip;this.lastOut=op}
+   for(let c=0;c<2;c++){let y=x[c]*D2L(-this.gr[c]);if(p.dist)y=this.dist(y,this.gr[c],c);this.yPrev[c]=y;if(p.audioHP)y=this.audHP[c].p(y);let w=y*this.curOut;if(p.levelMatch){const k=1-Math.exp(-1/(1.0*this.fs));this.eD+=(dry[c]*dry[c]-this.eD)*k;this.eW+=(w*w-this.eW)*k;if(this.eD>1e-9&&this.eW>1e-9){const t=Math.min(16,Math.max(.0625,Math.sqrt(this.eD/this.eW)));this.lm+=(t-this.lm)*(1-Math.exp(-1/(2.0*this.fs)))}w*=this.lm}
+    let o=p.mix>=1?w:(p.mix<=0?dry[c]:dry[c]*(1-p.mix)+w*p.mix);if(!isFinite(o)){this.reset();o=0}if(p.bypass)o=dry[c];else if(p.autoTrim){o*=this.trimLin;const a=Math.abs(o);if(a>=1)this.trimLin*=0.98855/a}ch[c][i]=o;op=Math.max(op,Math.abs(o))}}
+  this.grPk=gm;this.inPk=Math.max(ip,this.inPk*Math.pow(.9,n/512));this.outPk=Math.max(op,this.outPk*Math.pow(.9,n/512));this.grNow=this.gr[0];this.lastIn=ip;this.lastOut=op}
  resetTrim(){this.trimLin=1}
  resetLM(){this.lm=1;this.eD=0;this.eW=0}
  reset(){for(let c=0;c<2;c++){this.detHP[c].reset();this.detBand[c].reset();this.audHP[c].reset();this.dcX[c]=this.dcY[c]=0}this.gr=[0,0]}}
@@ -252,7 +255,7 @@ function fillSrc(kind,pos,n,L,R,fs){for(let i=0;i<n;i++){const s=srcSample(kind,
 const DEF={input:5,attack:5,release:5,output:5,mix:100,ratio:4,detHP:0,detBand:0,link:1,audioHP:0,dist:0,headroom:3,bypass:0,autoTrim:0,levelMatch:0};
 const st=Object.assign({},DEF);
 const mapAttack=k=>0.05*Math.pow(600,k/10), mapRelease=k=>50*Math.pow(70,k/10);
-function core(){return{inputDb:st.input*3,outputDb:(st.output-5)*4.8,attackMs:mapAttack(st.attack),releaseMs:mapRelease(st.release),ratioIndex:st.ratio,detHP:!!st.detHP,detBand:!!st.detBand,link:!!st.link,audioHP:!!st.audioHP,dist:st.dist,headroomDb:4+4*st.headroom,mix:st.mix/100,bypass:!!st.bypass,autoTrim:!!st.autoTrim,levelMatch:!!st.levelMatch}}
+function core(){return{inputDb:st.input*3,outputDb:(st.output-5)*4.8,attackMs:mapAttack(st.attack),releaseMs:mapRelease(st.release),ratioIndex:st.ratio,detHP:!!st.detHP,detBand:!!st.detBand,link:!!st.link,audioHP:!!st.audioHP,dist:st.dist,headroomDb:4+4*st.headroom,mix:st.mix/100,bypass:!!st.bypass,autoTrim:!!st.autoTrim,levelMatch:!!st.levelMatch,detFB:settings.tap===1}}
 const TYPES=['Vocal','Bass','Drum','Keys','Guitar','Bus','FX'];
 const F=(name,type,tags,p)=>({name,type,tags,p:Object.assign({},DEF,p),factory:true});
 const FACTORY=[
@@ -301,7 +304,7 @@ const ladLeds=[];
  LAD.forEach((v,i)=>{const x=30+i*27,y=48;const l=add('led',x,y);l.style.color=ladColor(v);ladLeds.push(l);add('lnum',x,y-17,String(v))});
  const rLeds=[];
  RLAB.forEach((t,i)=>{const x=58+i*62,y=118;const l=add('led',x,y);l.style.color=i===7?'var(--b)':'var(--g)';rLeds.push(l);add('lnum',x,y-17,t==='10:1'?'10:1 Opto':t);
-  const h=el('button','led-hit');h.style.left=x+'px';h.style.top=y+'px';h.setAttribute('aria-label','Ratio '+t);h.dataset.tip=['1:1 saturation only, no compression.','2:1 long gentle knee.','3:1 gentle knee.','4:1 general purpose.','6:1 a good place to start.','10:1 Opto, program dependent release up to about 20 s.','20:1 hard limiting curve.','Nuke: brick wall limiting.'][i];h.onclick=()=>{st.ratio=i;syncUI()};top.appendChild(h)});
+  const h=el('button','led-hit');h.style.left=x+'px';h.style.top=(y-9)+'px';h.style.height='48px';h.setAttribute('aria-label','Ratio '+t);h.dataset.tip=['1:1 saturation only, no compression.','2:1 long gentle knee.','3:1 gentle knee.','4:1 general purpose.','6:1 a good place to start.','10:1 Opto, program dependent release up to about 20 s.','20:1 hard limiting curve.','Nuke: brick wall limiting.'][i];h.onclick=()=>{st.ratio=i;syncUI()};top.appendChild(h)});
  add('bracket',22,86,'',{width:'486px',height:'50px'});
  const rb=el('button','pbtn');rb.style.left='560px';rb.style.top='116px';rb.setAttribute('aria-label','Cycle ratio');rb.dataset.tip='Next ratio. Shift for the previous one. Careful: going to 1:1 while compressing hard makes the level jump.';rb.onclick=e=>{st.ratio=(st.ratio+(e.shiftKey?7:1))%8;syncUI()};top.appendChild(rb);
  add('sect',560,132,'Ratio',{fontSize:'13px',transform:'translateX(-50%)'});
@@ -327,7 +330,7 @@ const ladLeds=[];
  const ab=el('button','pbtn');ab.style.left='932px';ab.style.top='116px';ab.setAttribute('aria-label','Cycle audio mode');ab.dataset.tip='Cycle the audio modes: Norm, HP, Dist 2, Dist 2+HP, Dist 3, Dist 3+HP.';
  ab.onclick=e=>{const seq=[[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]];let i=seq.findIndex(s=>s[0]===st.dist&&s[1]===st.audioHP);i=(i+(e.shiftKey?5:1))%6;st.dist=seq[i][0];st.audioHP=seq[i][1];syncUI()};top.appendChild(ab);
  add('sect',932,132,'Audio',{fontSize:'13px',transform:'translateX(-50%)'});
- l1.dataset.tip='Indicator, not a button: lights when the added distortion reaches about 1% THD. Switch distortion on with Dist 2 or Dist 3 in the Audio section.';l2.dataset.tip='Indicator, not a button: lights when the added distortion gets heavy (about 3% THD).';
+ l1.dataset.tip='Indicator, not a button: lights when the added distortion reaches about 1% THD. Switch distortion on with Dist 2 or Dist 3 in the Audio section.';l2.dataset.tip='Indicator, not a button: lights at about 3% THD, and also when the output clips.';
  top._ref={rLeds,l1,l2,dl,al}})();
 /* ============ Knobs ============ */
 const KN=[
@@ -335,7 +338,7 @@ const KN=[
  {id:'attack',lab:'Attack',def:5,max:10,tip:'How fast compression grabs. 0 is fastest (50 microseconds), 10 is slowest (30 ms). Slow it down to keep drum punch.',val:v=>{const m=mapAttack(v);return `<b>${v.toFixed(1)}</b> &middot; ${m<1?(m*1000).toFixed(0)+' us':m.toFixed(1)+' ms'}`}},
  {id:'release',lab:'Release',def:5,max:10,tip:'How long compression lets go. 0 is fastest (50 ms), 10 is slowest (3.5 s). In 10:1 Opto it can stretch to about 20 s.',val:v=>{const m=mapRelease(v);return `<b>${v.toFixed(1)}</b> &middot; ${m<1000?m.toFixed(0)+' ms':(m/1000).toFixed(2)+' s'}`}},
  {id:'output',lab:'Output',def:5,max:10,tip:'Output level after the compressor. 5 is 0 dB, range -24 to +24 dB.',val:v=>`<b>${v.toFixed(1)}</b> &middot; ${((v-5)*4.8>=0?'+':'')+((v-5)*4.8).toFixed(1)} dB`},
- {id:'mix',lab:'Mix',def:100,max:100,tip:'Blend of the dry signal and the processed signal for parallel compression. Dry on the left, Comp (all processed) on the right.',val:v=>`<span style="color:var(--title);letter-spacing:1px">DRY</span><span><b>${v.toFixed(0)}%</b> comp</span><span style="color:var(--title);letter-spacing:1px">COMP</span>`}
+ {id:'mix',lab:'Mix',def:100,max:100,tip:'Blend of the dry signal and the processed signal for parallel compression. Dry on the left, Comp (all processed) on the right.',val:v=>`<span data-end="0" data-tip="Click DRY to set the knob fully dry." style="color:var(--title);letter-spacing:1px;cursor:pointer">DRY</span><span><b>${v.toFixed(0)}%</b> comp</span><span data-end="100" data-tip="Click COMP to set the knob fully processed." style="color:var(--title);letter-spacing:1px;cursor:pointer">COMP</span>`}
 ];
 const knobsEl=$('#knobs');
 function knobSVG(max,isMix){let s='<svg viewBox="0 0 150 150" width="150" height="150"><defs><radialGradient id="kg'+(isMix?'m':'')+'" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#f1f1f4"/><stop offset=".55" stop-color="#b9bac2"/><stop offset="1" stop-color="#6e6f78"/></radialGradient></defs>';
@@ -353,7 +356,7 @@ KN.forEach(k=>{const c=el('div','kcell');c.innerHTML=`<div class="lab">${k.lab}<
  kn.addEventListener('wheel',e=>{e.preventDefault();st[k.id]=clamp(st[k.id]+(e.deltaY<0?1:-1)*k.max*(e.shiftKey?.002:.02),0,k.max);syncUI()},{passive:false});
  kn.addEventListener('keydown',e=>{const s=k.max*(e.shiftKey?.002:.01);if(e.key==='ArrowUp'||e.key==='ArrowRight'){st[k.id]=clamp(st[k.id]+s,0,k.max);syncUI();e.preventDefault()}if(e.key==='ArrowDown'||e.key==='ArrowLeft'){st[k.id]=clamp(st[k.id]-s,0,k.max);syncUI();e.preventDefault()}if(e.key==='Home'){st[k.id]=0;syncUI()}if(e.key==='End'){st[k.id]=k.max;syncUI()}})});
 const mixCell=knobRefs.mix.kn.parentNode;
-knobRefs.mix.v.style.cssText='display:flex;justify-content:space-between;width:150px';
+knobRefs.mix.v.style.cssText='display:flex;justify-content:space-between;width:150px';knobRefs.mix.v.addEventListener('click',e=>{const t=e.target.closest('[data-end]');if(t){st.mix=+t.dataset.end;syncUI()}});
 const hrCell=el('div','kcell');hrCell.style.width='110px';hrCell.innerHTML='<div class="lab" style="letter-spacing:2px">Headroom</div>';
 const hr=el('button','btn');hr.style.cssText='margin-top:52px;font-size:18px;font-family:var(--font-num);padding:8px 10px;min-width:84px';
 hr.dataset.tip='Headroom (HR), as in the hardware manual: higher dB pushes the circuit into more processing and colour, lower dB keeps it cleaner. 4 to 28 dB, 16 is the default. Only matters with Dist 2 or Dist 3. Click to step up, shift-click to step down, double-click to reset.';
@@ -427,10 +430,10 @@ function drawHist(){const cv=$('#cvHist'),g=cv.getContext('2d'),w=cv.width,h=cv.
  g.beginPath();g.moveTo(26,Y(0));for(let i=0;i<360;i++){const v=hist[(hi+i)%360];g.lineTo(26+i/359*(w-30),Y(Math.min(30,v)))}g.lineTo(w-4,Y(0));g.closePath();
  g.fillStyle='rgba(164,61,255,.35)';g.fill();g.strokeStyle='#CD92FE';g.lineWidth=1.6;g.stroke();
  g.fillStyle=T.ink;g.textAlign='left';g.font='11px JetBrains Mono,monospace';g.fillText('GR '+eng.grNow.toFixed(1)+' dB',32,h-6)}
-function drawLeds(){const gr=eng.p.bypass?0:eng.grNow;ladLeds.forEach((l,i)=>l.classList.toggle('on',gr>=LAD[i]-.25));
+function drawLeds(){const gr=eng.grNow;ladLeds.forEach((l,i)=>l.classList.toggle('on',gr>=LAD[i]-.25));
  const p=eng.p,pk=Math.min(1,eng.outPk),lf=.4+.6*Math.min(gr,20)/20,d=D2L(p.headroomDb-16);let thd=.001;
  if(p.dist&&!p.bypass){const a2=(p.dist===1?.15:.05)*lf*d,h2=a2*pk/2,h3=p.dist===2?.3*lf*d*d*pk*pk/4:0;thd=Math.hypot(h2,h3)}
- const R=top._ref;R.l1.classList.toggle('on',thd>=.01);R.l2.classList.toggle('on',thd>=.03)}
+ const R=top._ref;R.l1.classList.toggle('on',thd>=.01);R.l2.classList.toggle('on',thd>=.03||eng.outPk>=1)}
 /* ============ Audio preview + animation loop ============ */
 let ctx=null,node=null,playing=false,pos=0,lastT=0,visible=true,fpsGap=0,srcKind='mix';
 function startAudio(){if(!ctx){ctx=new (window.AudioContext||window.webkitAudioContext)();eng.prepare(ctx.sampleRate);
@@ -465,12 +468,13 @@ function closeModal(){modal.hidden=true;modal.innerHTML=''}
 modal.addEventListener('pointerdown',e=>{if(e.target===modal)closeModal()});
 const btn=(t,fn,c)=>{const b=el('button','btn'+(c?' '+c:''),t);b.onclick=fn;return b};
 /* Settings */
-const settings={tips:true,power:false,look:'C'};try{Object.assign(settings,JSON.parse(localStorage.getItem('purrrstressor-settings')||'{}'))}catch(e){}
+const settings={tips:true,power:false,look:'C',tap:0};try{Object.assign(settings,JSON.parse(localStorage.getItem('purrrstressor-settings')||'{}'))}catch(e){}
 function applySettings(){app.dataset.look=settings.look;T=tokens();try{localStorage.setItem('purrrstressor-settings',JSON.stringify(settings))}catch(e){}}
 applySettings();
-$('#bSettings').onclick=()=>{const b=openModal('Settings','<label><input type="checkbox" id="sTips"> Info bubbles after hovering for about one second</label><label><input type="checkbox" id="sPow"> Power saving (redraw at 16 frames per second)</label><label>Colour look <select id="sLook"><option value="C">Look C, charcoal and white (default)</option><option value="A">Look A, neon navy</option><option value="B">Look B, purple soda pop</option></select></label><p style="color:var(--dim)">The look is saved with the plugin settings, not with each preset. Wood, cat logo, meter colours and dB scales stay the same in all three.</p><label><button class="btn" id="sReset">Reset window to 100%</button></label>',null);
+$('#bSettings').onclick=()=>{const b=openModal('Settings','<label><input type="checkbox" id="sTips"> Info bubbles after hovering for about one second</label><label><input type="checkbox" id="sPow"> Power saving (redraw at 16 frames per second)</label><label>Colour look <select id="sLook"><option value="C">Look C, charcoal and white (default)</option><option value="A">Look A, neon navy</option><option value="B">Look B, purple soda pop</option></select></label><p style="color:var(--dim)">The look is saved with the plugin settings, not with each preset. Wood, cat logo, meter colours and dB scales stay the same in all three.</p><label>Detector tap <select id="sTap"><option value="0">Input (stable, default)</option><option value="1">After distortion (hardware-style)</option></select></label><p style="color:var(--dim)">The hardware diagram shows the detector listening after the distortion stage. That is a feedback loop, so very fast attacks at 20:1 and Nuke are a little slower in that mode.</p><label><button class="btn" id="sReset">Reset window to 100%</button></label>',null);
  b.querySelector('#sTips').checked=settings.tips;b.querySelector('#sPow').checked=settings.power;b.querySelector('#sLook').value=settings.look;
  b.querySelector('#sTips').onchange=e=>{settings.tips=e.target.checked;applySettings()};b.querySelector('#sPow').onchange=e=>{settings.power=e.target.checked;applySettings()};
+ b.querySelector('#sTap').value=String(settings.tap);b.querySelector('#sTap').onchange=e=>{settings.tap=+e.target.value;applySettings();syncUI()};
  b.querySelector('#sLook').onchange=e=>{settings.look=e.target.value;applySettings()};b.querySelector('#sReset').onclick=()=>{setScale(s0);toast('Window reset to 100%')}};
 /* Guide */
 $('#bGuide').onclick=()=>openModal('Guide',`<p><b>Signal flow</b> (as in the manuals): Input, then the gain stage, then Distortion, then Audio HP, then Output. The detector (band emphasis and high-pass) steers the gain stage. In this version the detector listens just after Input; the hardware listens after the distortion.</p>
