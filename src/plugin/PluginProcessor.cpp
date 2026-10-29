@@ -28,6 +28,8 @@ AudioProcessorValueTreeState::ParameterLayout PurrrstressorProcessor::createLayo
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ids::mix, v }, "Mix",
         NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, AudioParameterFloatAttributes().withLabel ("%")));
     p.push_back (std::make_unique<AudioParameterBool> (ParameterID { ids::bypass, v }, "Bypass", false));
+    p.push_back (std::make_unique<AudioParameterBool> (ParameterID { ids::autoTrim, v }, "Auto Trim", false));
+    p.push_back (std::make_unique<AudioParameterBool> (ParameterID { ids::levelMatch, v }, "Level Match", false));
 
     return { p.begin(), p.end() };
 }
@@ -51,6 +53,8 @@ PurrrstressorProcessor::PurrrstressorProcessor()
     pHeadroom = apvts.getRawParameterValue (ids::headroom);
     pMix      = apvts.getRawParameterValue (ids::mix);
     pBypass   = apvts.getRawParameterValue (ids::bypass);
+    pAutoTrim = apvts.getRawParameterValue (ids::autoTrim);
+    pLevelMatch = apvts.getRawParameterValue (ids::levelMatch);
 }
 
 purr::Params PurrrstressorProcessor::readParams() const
@@ -68,6 +72,9 @@ purr::Params PurrrstressorProcessor::readParams() const
     q.dist       = (purr::DistMode) (int) pDist->load();
     q.headroomDb = 4.0f + 4.0f * pHeadroom->load();
     q.mix        = pMix->load() * 0.01f;
+    q.autoTrim   = pAutoTrim->load() > 0.5f;
+    q.levelMatch = pLevelMatch->load() > 0.5f;
+    q.detFeedback = detTapRt.load() == 1;
     return q;
 }
 
@@ -77,32 +84,82 @@ bool PurrrstressorProcessor::isBusesLayoutSupported (const BusesLayout& l) const
     return (out == AudioChannelSet::mono() || out == AudioChannelSet::stereo()) && out == l.getMainInputChannelSet();
 }
 
-void PurrrstressorProcessor::prepareToPlay (double sampleRate, int)
+var PurrrstressorProcessor::getSetting (const char* key, const var& fallback) const
+{
+    return apvts.state.getProperty (key, fallback);
+}
+
+void PurrrstressorProcessor::setSetting (const char* key, const var& v)
+{
+    apvts.state.setProperty (key, v, nullptr);
+    if (juce::String (key) == setting::detTap) detTapRt.store ((int) v);
+}
+
+void PurrrstressorProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     core.setParams (readParams());
     core.prepare (sampleRate);
-    setLatencySamples (0); // no lookahead and no oversampling yet
+    maxChunk = jmax (64, samplesPerBlock);
+    dryCopy.setSize (2, maxChunk, false, true, false);
+    bypassMix = pBypass->load() > 0.5f ? 1.0f : 0.0f;
+    setLatencySamples (0); // anti-aliasing is ADAA, so no oversampling latency
 }
 
 void PurrrstressorProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
 {
     ScopedNoDenormals noDenormals;
 
+    const int numCh = jmin (2, buffer.getNumChannels());
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
         buffer.clear (ch, 0, buffer.getNumSamples());
+    if (numCh == 0) return;
 
-    if (pBypass->load() > 0.5f)
-    {
-        grMeterDb.store (0.0f);
-        return; // plain pass-through (click-free crossfade comes later)
-    }
-
+    if (resetTrimRequested.exchange (false)) core.resetTrim();
     core.setParams (readParams());
 
-    float* l = buffer.getWritePointer (0);
-    float* r = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
-    core.process (l, r, buffer.getNumSamples());
+    const float bypassTarget = pBypass->load() > 0.5f ? 1.0f : 0.0f;
+    const float rampStep = 1.0f / (0.010f * (float) jmax (8000.0, getSampleRate())); // about 10 ms
+    float inPk = 0.0f, outPk = 0.0f;
+
+    // The circuit always runs (warm state, and the GR meter stays active in bypass like the
+    // hardware); bypass crossfades to the dry copy.
+    for (int start = 0; start < buffer.getNumSamples(); start += maxChunk)
+    {
+        const int n = jmin (maxChunk, buffer.getNumSamples() - start);
+        float* l = buffer.getWritePointer (0) + start;
+        float* r = numCh > 1 ? buffer.getWritePointer (1) + start : nullptr;
+        for (int ch = 0; ch < numCh; ++ch)
+            FloatVectorOperations::copy (dryCopy.getWritePointer (ch), buffer.getReadPointer (ch) + start, n);
+        for (int i = 0; i < n; ++i)
+        {
+            inPk = jmax (inPk, std::abs (l[i]));
+            if (r) inPk = jmax (inPk, std::abs (r[i]));
+        }
+
+        core.process (l, r, n);
+
+        for (int i = 0; i < n; ++i)
+        {
+            if (bypassMix < bypassTarget) bypassMix = jmin (bypassTarget, bypassMix + rampStep);
+            else if (bypassMix > bypassTarget) bypassMix = jmax (bypassTarget, bypassMix - rampStep);
+            if (bypassMix > 0.0f)
+            {
+                l[i] += (dryCopy.getReadPointer (0)[i] - l[i]) * bypassMix;
+                if (r) r[i] += (dryCopy.getReadPointer (1)[i] - r[i]) * bypassMix;
+            }
+            outPk = jmax (outPk, std::abs (l[i]));
+            if (r) outPk = jmax (outPk, std::abs (r[i]));
+        }
+    }
+
     grMeterDb.store (core.grDb());
+    inPeak.store (inPk);
+    outPeak.store (outPk);
+    thdRatio.store (core.thd());
+    redline.store (core.redline());
+    trimDb.store (core.trimDb());
+    matchDb.store (core.levelMatchDb());
+    if (outPk >= 1.0f) clipLatch.store (true);
 }
 
 AudioProcessorEditor* PurrrstressorProcessor::createEditor()
@@ -122,7 +179,10 @@ void PurrrstressorProcessor::setStateInformation (const void* data, int size)
 {
     if (auto xml = getXmlFromBinary (data, size))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (ValueTree::fromXml (*xml)); // unknown keys are ignored by APVTS
+            detTapRt.store ((int) getSetting (setting::detTap, 0));
+        }
 }
 
 AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new PurrrstressorProcessor(); }

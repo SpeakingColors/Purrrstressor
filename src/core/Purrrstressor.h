@@ -1,13 +1,18 @@
-// Purrrstressor DSP core v0.2. Plain C++17, no JUCE, no allocation after prepare().
+// Purrrstressor DSP core v0.3. Plain C++17, no JUCE, no allocation after prepare().
 // Original design: feed-forward compressor, dB-domain attack/release smoothing,
 // per-ratio knee, detector filters, audio filter and two harmonic stages.
 // Not based on any vendor code. Behaviour targets come from the public manuals
 // (UA EL8 Distressor manual page; Empirical Labs EL8X manual).
 // Anything marked OURS is our own choice, not a measurement of hardware.
-// Known difference: the UA diagram shows the detector tapping the signal AFTER the
-// distortion stage (feedback style). Ours is feed-forward (taps after Input Level)
-// because feedback detection with very fast attacks and ratios up to Nuke needs
-// extra loop stabilisation. Revisit once the basics are tuned by ear.
+// Detector tap: default is feed-forward (taps after the input amplifier, always stable).
+// The UA diagram shows the detector tapping AFTER the distortion stage, which is a feedback
+// loop. Params::detFeedback switches to a feedback detector with the gain computer inverted
+// so the labelled ratios stay correct; the loop is stabilised by limiting the smoothing
+// speed to 1/ratio per sample (so very fast attacks at 20:1 and Nuke are slower in this mode).
+// Manual points modelled: nonlinear input and output amplifiers (scaled by Headroom, amounts
+// OURS), THD and Redline indicators (Redline also means output clipping), attack faster than
+// 50 us on 2:1, 3:1 and 4:1 (factor OURS). Not modelled (no published numbers): the mono
+// "dead patch" Link behaviour and the per-ratio amount of threshold shift from Input.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -117,6 +122,56 @@ inline constexpr int   kOptoIndex = 5;
 
 enum class DistMode { Off = 0, Dist2 = 1, Dist3 = 2 };
 
+// First order antiderivative anti-aliasing (ADAA) for the memoryless waveshapers.
+// Only the nonlinear part r(x) = g(x) - x goes through ADAA: y = x + (R(x[n]) - R(x[n-1])) / dx,
+// R = antiderivative of r. (Running the whole shaper through ADAA would add a two point average
+// that darkens the linear signal by 12 dB at 20 kHz.) R is always evaluated for the previous
+// input with the CURRENT amounts, so a slowly moving amount cannot cause spikes. Zero latency;
+// the added harmonics sit about half a sample later than the fundamental, which is inaudible.
+struct AdaaQuad // g(x) = x + a x^2
+{
+    float xp = 0;
+    void reset() { xp = 0; }
+    float process (float x, float a)
+    {
+        const double dx = (double) x - xp;
+        double r;
+        if (std::fabs (dx) < 1.0e-4) { const double m = 0.5 * ((double) x + xp); r = a * m * m; }
+        else r = a * ((double) x * x * x - (double) xp * xp * xp) / (3.0 * dx);
+        xp = x;
+        return x + (float) r;
+    }
+};
+
+struct AdaaCubic // g(x) = c - b c^3 with c = clamp(x, -lim, lim), lim = 0.9 / sqrt(3 b) (monotonic)
+{
+    float xp = 0;
+    void reset() { xp = 0; }
+    static double Rn (double x, double b, double lim) // r(x) = g(x) - x
+    {
+        const double c = std::clamp (x, -lim, lim);
+        return c - b * c * c * c - x;
+    }
+    static double FR (double x, double b, double lim) // antiderivative of r, even function
+    {
+        const double ax = std::fabs (x);
+        if (ax <= lim) return -0.25 * b * ax * ax * ax * ax;
+        const double glim = lim - b * lim * lim * lim;
+        return -0.25 * b * lim * lim * lim * lim + glim * (ax - lim) - 0.5 * (ax * ax - lim * lim);
+    }
+    float process (float x, float b)
+    {
+        if (b < 1.0e-9f) { xp = x; return x; }
+        const double lim = 0.9 / std::sqrt (3.0 * (double) b);
+        const double dx = (double) x - xp;
+        double r;
+        if (std::fabs (dx) < 1.0e-4) r = Rn (0.5 * ((double) x + xp), b, lim);
+        else r = (FR (x, b, lim) - FR (xp, b, lim)) / dx;
+        xp = x;
+        return x + (float) r;
+    }
+};
+
 struct Params
 {
     float inputDb   = 0.0f;    // 0 to +30, drives detector and audio (hardware: input gain and threshold)
@@ -131,6 +186,9 @@ struct Params
     DistMode dist   = DistMode::Off;
     float headroomDb = 16.0f;  // plug-in only HR control, 4 to 28 in 4 dB steps, default 16
     float mix       = 1.0f;    // 0 dry .. 1 compressed (parallel, plug-in only)
+    bool  detFeedback = false; // detector taps after the distortion (feedback), stabilised
+    bool  levelMatch = false;  // slowly match processed loudness to the dry input (compare aid)
+    bool  autoTrim   = false;  // ratchet the output down whenever it reaches 0 dBFS
 };
 
 class Compressor
@@ -141,12 +199,18 @@ public:
     static constexpr float kBandGainDb = 9.0f;   // OURS, amount not published
     static constexpr float kAudioHPHz = 60.0f;   // -3 dB point from the EL8X manual (about -3 dB at 60 Hz, -12 dB at 30 Hz); UA page says 80 Hz cutoff
     static constexpr float kOptoReleaseGrow = 4.7f; // OURS: 3.5 s * (1 + 4.7) = about 20 s
+    static constexpr float kFastAttackFactor = 0.5f; // OURS: 2:1, 3:1, 4:1 reach faster attacks than 50 us (manual)
+    static constexpr float kTrimMarginDb = 0.1f;   // Auto Trim drops this much past each overshoot
+    static constexpr float kIoAmpK = 0.01f;         // OURS: input amp cubic amount at HR 16 (output amp uses half)
 
     void prepare (double sampleRate)
     {
         fs = sampleRate;
         smoothCoef = 1.0f - std::exp (-1.0f / (0.010f * (float) fs)); // about 10 ms
         dcR = 1.0f - 6.283185f * 10.0f / (float) fs;
+        lmEnergyK = 1.0f - std::exp (-1.0f / (1.0f * (float) fs));  // 1 s level averaging
+        lmGainK   = 1.0f - std::exp (-1.0f / (2.0f * (float) fs));  // 2 s gain smoothing
+        pkDecay   = std::exp (-1.0f / (0.1f * (float) fs));         // 100 ms peak hold decay for THD and clip
         for (int c = 0; c < 2; ++c)
         {
             detHP[c].set (fs, kDetHPHz);
@@ -154,15 +218,24 @@ public:
             audHP[c].set (fs, kAudioHPHz);
         }
         setParams (p);
-        curIn = tgtIn; curOut = tgtOut;
+        curIn = tgtIn; curOut = tgtOut; curMix = p.mix;
         reset();
     }
 
     void reset()
     {
         gr[0] = gr[1] = 0; grMeter = 0;
-        for (int c = 0; c < 2; ++c) { detHP[c].reset(); detBand[c].reset(); audHP[c].reset(); dcX[c] = dcY[c] = 0; }
+        for (int c = 0; c < 2; ++c)
+        {
+            detHP[c].reset(); detBand[c].reset(); audHP[c].reset(); dcX[c] = dcY[c] = 0;
+            aaIn[c].reset(); aaOut[c].reset(); aaQ[c].reset(); aaC[c].reset(); yPrev[c] = 0;
+        }
+        resetLevelMatch(); resetTrim();
+        inPk = outPk = thdEnv = 0;
     }
+    void resetTrim() { trimLin = 1.0f; }
+    void resetLevelMatch() { lmGain = 1.0f; eDry = eWet = 0.0f; }
+    void setAntiAlias (bool on) { antiAlias = on; } // on by default; off only for A/B tests
 
     void setParams (const Params& np)
     {
@@ -174,7 +247,11 @@ public:
         p.headroomDb = std::clamp (p.headroomDb, 4.0f, 28.0f);
         tgtIn  = dbToLin (std::clamp (p.inputDb, 0.0f, 30.0f));
         tgtOut = dbToLin (std::clamp (p.outputDb, -24.0f, 24.0f));
-        aAtk   = std::exp (-1.0f / (p.attackMs * 0.001f * (float) fs));
+        float atk = p.attackMs;
+        if (p.ratioIndex >= 1 && p.ratioIndex <= 3) atk *= kFastAttackFactor;
+        aAtk   = std::exp (-1.0f / (atk * 0.001f * (float) fs));
+        if (! p.levelMatch) resetLevelMatch();
+        if (! p.autoTrim) resetTrim();
     }
 
     // r may be nullptr for mono.
@@ -185,19 +262,31 @@ public:
         const float ratio = kRatios[ri];
         const bool compress = ratio > 1.0f;
         const int chans = stereo ? 2 : 1;
+        const float hrLin = dbToLin (p.headroomDb - 16.0f);
+        const float kIn = kIoAmpK * hrLin * hrLin, kOutAmp = 0.5f * kIn; // cubic amounts of the I/O amplifiers
 
         for (int i = 0; i < n; ++i)
         {
             curIn  = approach (curIn,  tgtIn);
             curOut = approach (curOut, tgtOut);
+            curMix = approach (curMix, p.mix);
 
             float dry[2] = { l[i], stereo ? r[i] : 0.0f };
-            float x[2]   = { dry[0] * curIn, dry[1] * curIn };
+            float x[2];
+            float pkNow = 0.0f;
+            for (int c = 0; c < chans; ++c)
+            {
+                pkNow = std::max (pkNow, std::fabs (dry[c]));
+                // Input amplifier (UA diagram: Input, then Input Level), then the Input Level gain.
+                const float amp = antiAlias ? aaIn[c].process (dry[c], kIn) : cubicNaive (dry[c], kIn);
+                x[c] = amp * curIn;
+            }
+            if (! stereo) x[1] = 0.0f;
 
             float lv[2] = { -180.0f, -180.0f };
             for (int c = 0; c < chans; ++c)
             {
-                float d = x[c];
+                float d = p.detFeedback ? yPrev[c] : x[c];
                 if (p.detHP)   d = detHP[c].process (d);
                 if (p.detBand) d = detBand[c].process (d);
                 lv[c] = linToDb (std::fabs (d));
@@ -208,45 +297,87 @@ public:
             {
                 if (p.link || ! stereo)
                 {
-                    gr[0] = smooth (gr[0], grTarget (std::max (lv[0], lv[1]), ri), ri);
+                    gr[0] = smooth (gr[0], target (std::max (lv[0], lv[1]), ri), ri);
                     gr[1] = gr[0];
                 }
                 else
                 {
-                    gr[0] = smooth (gr[0], grTarget (lv[0], ri), ri);
-                    gr[1] = smooth (gr[1], grTarget (lv[1], ri), ri);
+                    gr[0] = smooth (gr[0], target (lv[0], ri), ri);
+                    gr[1] = smooth (gr[1], target (lv[1], ri), ri);
                 }
             }
             else gr[0] = gr[1] = 0.0f;
 
             grMeter = std::max (gr[0], gr[1]);
 
-            float wet[2];
+            float wet[2], mixed[2];
+            float thd2 = 0.0f;
             for (int c = 0; c < chans; ++c)
             {
                 // Order from the UA signal flow diagram: Input, VCA, Distortion, Audio HP, Output.
                 float y = x[c] * dbToLin (-gr[c]);
-                if (p.dist != DistMode::Off) y = distort (y, gr[c], c);
+                if (p.dist != DistMode::Off) y = distort (y, gr[c], c, thd2);
+                yPrev[c] = y;
                 if (p.audioHP) y = audHP[c].process (y);
-                wet[c] = y * curOut;
+                const float yo = y * curOut;
+                wet[c] = antiAlias ? aaOut[c].process (yo, kOutAmp) : cubicNaive (yo, kOutAmp); // output amplifier
             }
 
+            // Level Match: scale the processed signal to the loudness of the dry input.
+            if (p.levelMatch)
+            {
+                float ed = 0.0f, ew = 0.0f;
+                for (int c = 0; c < chans; ++c) { ed += dry[c] * dry[c]; ew += wet[c] * wet[c]; }
+                eDry += (ed / (float) chans - eDry) * lmEnergyK;
+                eWet += (ew / (float) chans - eWet) * lmEnergyK;
+                if (eDry > 1.0e-9f && eWet > 1.0e-9f)
+                {
+                    const float t = std::clamp (std::sqrt (eDry / eWet), 0.0625f, 16.0f); // +-24 dB
+                    lmGain += (t - lmGain) * lmGainK;
+                }
+                for (int c = 0; c < chans; ++c) wet[c] *= lmGain;
+            }
+
+            float peak = 0.0f;
             for (int c = 0; c < chans; ++c)
             {
                 float o;
-                if (p.mix >= 1.0f) o = wet[c];
-                else if (p.mix <= 0.0f) o = dry[c];
-                else o = dry[c] * (1.0f - p.mix) + wet[c] * p.mix;
-
+                if (curMix >= 1.0f) o = wet[c];
+                else if (curMix <= 0.0f) o = dry[c];
+                else o = dry[c] * (1.0f - curMix) + wet[c] * curMix;
+                if (p.autoTrim) o *= trimLin;
                 if (! std::isfinite (o)) { reset(); o = 0.0f; }
-                (c == 0 ? l : r)[i] = o;
+                mixed[c] = o;
+                peak = std::max (peak, std::fabs (o));
             }
+            // Auto Trim: no lookahead, so the overshoot itself passes; later samples are lower.
+            if (p.autoTrim && peak >= 1.0f) trimLin *= dbToLin (-kTrimMarginDb) / peak;
+
+            for (int c = 0; c < chans; ++c) (c == 0 ? l : r)[i] = mixed[c];
+
+            // Indicators: THD estimate from the I/O amplifiers and distortion stage, and output peak.
+            inPk  = std::max (pkNow, inPk * pkDecay);
+            outPk = std::max (peak, outPk * pkDecay);
+            const float h3in = kIn * inPk * inPk * 0.25f;
+            thdEnv = std::max (std::sqrt (thd2 + h3in * h3in), thdEnv * pkDecay);
         }
     }
 
-    float grDb() const { return grMeter; } // positive dB, for the GR meter
+    float grDb() const { return grMeter; }           // positive dB, for the GR meter
+    float levelMatchDb() const { return linToDb (lmGain); }
+    float trimDb() const { return linToDb (trimLin); }  // 0 or negative
+    float thd() const { return thdEnv; }              // linear ratio, 0.01 = 1 %
+    bool  thd1Percent() const { return thdEnv >= 0.01f; }
+    bool  redline() const { return thdEnv >= 0.03f || outPk >= 1.0f; } // manual: about 3 % THD, or output clipping
 
 private:
+    static float cubicNaive (float x, float b)
+    {
+        if (b < 1.0e-9f) return x;
+        const float lim = 0.9f / std::sqrt (3.0f * b), c = std::clamp (x, -lim, lim);
+        return c - b * c * c * c;
+    }
+
     float approach (float cur, float tgt) const
     {
         const float d = tgt - cur;
@@ -270,32 +401,69 @@ private:
         return std::max (0.0f, levelDb - out);
     }
 
+    // Feedback version: the level seen is the OUTPUT of the gain stage, so invert the static
+    // curve (output level to input level). Steady state matches grTarget on the input level.
+    static float grTargetFeedback (float outDb, int ri)
+    {
+        const float ratio = kRatios[ri], thr = kThrDb[ri], w = kKneeDb[ri];
+        const float start = thr - 0.5f * w;
+        if (outDb <= start) return 0.0f;
+        const float d = outDb - start;
+        const float a = (1.0f / ratio - 1.0f) / (2.0f * w); // negative
+        const float dEnd = w * (0.5f + 0.5f / ratio);        // output offset at the end of the knee
+        float inDb;
+        if (d >= dEnd) inDb = thr + (outDb - thr) * ratio;
+        else
+        {
+            const float disc = std::max (0.0f, 1.0f + 4.0f * a * d);
+            const float u = (std::fabs (a) < 1.0e-9f) ? d : (-1.0f + std::sqrt (disc)) / (2.0f * a);
+            inDb = start + u;
+        }
+        return std::clamp (inDb - outDb, 0.0f, 60.0f); // cap: the inverse curve explodes for a loud first sample
+    }
+
+    float target (float levelDb, int ri) const
+    {
+        return p.detFeedback ? grTargetFeedback (levelDb, ri) : grTarget (levelDb, ri);
+    }
+
     // One-pole smoothing in the dB domain; attack when GR grows, release when it falls.
     // Opto (10:1): release grows with depth, up to about 20 s at the longest setting (OURS).
+    // Feedback detector: coefficients are limited to 1/ratio, which keeps the loop stable
+    // (loop gain is at most ratio - 1).
     float smooth (float cur, float target, int ri) const
     {
-        if (target > cur) return target + aAtk * (cur - target);
+        const float kMax = p.detFeedback ? 1.0f / kRatios[ri] : 1.0f;
+        if (target > cur)
+        {
+            const float k = std::min (1.0f - aAtk, kMax);
+            return cur + (target - cur) * k;
+        }
         float relMs = p.releaseMs;
         if (ri == kOptoIndex) relMs *= 1.0f + kOptoReleaseGrow * std::min (cur / 20.0f, 1.0f);
         const float aRel = std::exp (-1.0f / (relMs * 0.001f * (float) fs));
-        return target + aRel * (cur - target);
+        const float k = std::min (1.0f - aRel, kMax);
+        return cur + (target - cur) * k;
     }
 
     // Dist 2: mostly 2nd harmonic. Dist 3: 3rd dominant with some 2nd (manuals).
     // Amount rises with gain reduction and with Headroom (HR, default 16 dB). Constants OURS.
-    float distort (float x, float grDbNow, int c)
+    // Both stages use ADAA. thd2 accumulates the squared harmonic estimate from the running peak.
+    float distort (float x, float grDbNow, int c, float& thd2)
     {
         const float lf = 0.4f + 0.6f * std::min (grDbNow, 20.0f) / 20.0f;
         const float d  = dbToLin (p.headroomDb - 16.0f);
         const float a2 = (p.dist == DistMode::Dist2 ? 0.15f : 0.05f) * lf * d;
-        float y = x + a2 * x * x;
+        const float A = std::min (std::fabs (x), 1.5f); // instantaneous level; thdEnv holds the peak
+        float y = antiAlias ? aaQ[c].process (x, a2) : x + a2 * x * x;
+        float h2 = a2 * 0.5f * A, h3 = 0.0f;
         if (p.dist == DistMode::Dist3)
         {
             const float b = 0.3f * lf * d * d;
-            const float lim = 0.9f / std::sqrt (3.0f * b); // keep the cubic monotonic
-            const float xc = std::clamp (y, -lim, lim);
-            y = xc - b * xc * xc * xc;
+            y = antiAlias ? aaC[c].process (y, b) : cubicNaive (y, b);
+            h3 = b * 0.25f * A * A;
         }
+        thd2 = std::max (thd2, h2 * h2 + h3 * h3);
         const float o = y - dcX[c] + dcR * dcY[c]; // DC blocker (x^2 makes DC)
         dcX[c] = y; dcY[c] = o;
         return o;
@@ -303,12 +471,17 @@ private:
 
     Params p;
     double fs = 48000.0;
-    float smoothCoef = 0.01f, dcR = 0.999f, aAtk = 0.9f;
-    float tgtIn = 1.0f, tgtOut = 1.0f, curIn = 1.0f, curOut = 1.0f;
+    float smoothCoef = 0.01f, dcR = 0.999f, aAtk = 0.9f, lmEnergyK = 1.0e-5f, lmGainK = 1.0e-5f, pkDecay = 0.9999f;
+    float tgtIn = 1.0f, tgtOut = 1.0f, curIn = 1.0f, curOut = 1.0f, curMix = 1.0f;
     float gr[2] = { 0, 0 }, grMeter = 0;
+    float yPrev[2] = { 0, 0 };
+    float trimLin = 1.0f, lmGain = 1.0f, eDry = 0.0f, eWet = 0.0f, inPk = 0.0f, outPk = 0.0f, thdEnv = 0.0f;
+    bool antiAlias = true;
     OnePoleHP detHP[2];
     Biquad detBand[2];
     BesselHP3 audHP[2];
+    AdaaCubic aaIn[2], aaOut[2], aaC[2];
+    AdaaQuad aaQ[2];
     float dcX[2] = { 0, 0 }, dcY[2] = { 0, 0 };
 };
 

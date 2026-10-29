@@ -57,18 +57,19 @@ static double filterGainDb (F& f, double hz)
 
 int main()
 {
-    // 1. Neutral settings are bit exact.
+    // 1. Neutral settings pass quiet signals unchanged. The I/O amplifiers are slightly nonlinear
+    //    (manual: nonlinear input and output amplifiers), so only low levels are exact.
     {
         Params p; p.ratioIndex = 0; p.mix = 1.0f;
         auto c = make (p);
-        std::mt19937 rng (1); std::uniform_real_distribution<float> u (-1.0f, 1.0f);
+        std::mt19937 rng (1); std::uniform_real_distribution<float> u (-0.03f, 0.03f);
         std::vector<float> l (4800), r (4800), l0, r0;
         for (auto& s : l) s = u (rng);
         for (auto& s : r) s = u (rng);
         l0 = l; r0 = r;
         c.process (l.data(), r.data(), (int) l.size());
-        CHECK (std::memcmp (l.data(), l0.data(), l.size() * 4) == 0 && std::memcmp (r.data(), r0.data(), r.size() * 4) == 0,
-               "1:1, dist off, 0 dB in and out is bit exact");
+        double err = 0; for (size_t i = 0; i < l.size(); ++i) err = std::max ({ err, (double) std::fabs (l[i] - l0[i]), (double) std::fabs (r[i] - r0[i]) });
+        CHECK (err < 3e-5, "1:1, dist off, 0 dB in and out passes -30 dBFS noise (max error %.2e)", err);
     }
 
     // 2. Mix 0 returns the dry signal exactly even while compressing hard.
@@ -105,7 +106,7 @@ int main()
 
     // 4. Attack time constant: DC step, time to 63.2 percent of final GR.
     {
-        Params p; p.ratioIndex = 3; p.attackMs = 10.0f; p.releaseMs = 3500;
+        Params p; p.ratioIndex = 4; p.attackMs = 10.0f; p.releaseMs = 3500;
         auto c = make (p);
         float v; std::vector<float> trace;
         for (int i = 0; i < 4800; ++i) { v = 0.5f; c.process (&v, nullptr, 1); trace.push_back (c.grDb()); }
@@ -229,7 +230,8 @@ int main()
         p.link = false; auto c2 = make (p);
         auto L2 = sine (1000, 0.7, 24000), R2 = R0;
         c2.process (L2.data(), R2.data(), 24000);
-        CHECK (std::memcmp (R2.data(), R0.data(), R0.size() * 4) == 0, "unlinked: quiet R passes bit exact");
+        double e2 = 0; for (size_t i = 0; i < R0.size(); ++i) e2 = std::max (e2, (double) std::fabs (R2[i] - R0[i]));
+        CHECK (e2 < 2e-5, "unlinked: quiet R untouched by loud L (max error %.2e)", e2);
     }
 
     // 10. Harmonics: Dist 2 mostly 2nd; Dist 3 3rd dominant with some 2nd; Headroom raises both.
@@ -285,6 +287,107 @@ int main()
         c.process (z.data(), nullptr, 48000);
         double dc = 0; for (float s : z) dc += s; dc /= z.size();
         CHECK (std::fabs (dc) < 1e-6, "silence in, silence out (dc %.2e)", dc);
+    }
+
+
+    // 12. 2:1, 3:1 and 4:1 attack faster than the other ratios (manual).
+    {
+        auto t63 = [&] (int ri) {
+            Params p; p.ratioIndex = ri; p.attackMs = 10.0f; p.releaseMs = 3500;
+            auto c = make (p); float v; std::vector<float> tr;
+            for (int i = 0; i < 4800; ++i) { v = 0.5f; c.process (&v, nullptr, 1); tr.push_back (c.grDb()); }
+            const float fin = tr.back(); int hit = 0;
+            for (int i = 0; i < (int) tr.size(); ++i) if (tr[i] >= 0.632f * fin) { hit = i; break; }
+            return 1000.0 * hit / FS; };
+        const double a4 = t63 (3), a6 = t63 (4);
+        CHECK (a4 < 0.6 * a6, "4:1 attack (%.2f ms) is faster than 6:1 (%.2f ms) at the same setting", a4, a6);
+    }
+
+    // 13. Auto Trim: ratchets down by the overshoot plus 0.1 dB, never back up, off leaves peaks alone.
+    {
+        Params p; p.ratioIndex = 0; p.autoTrim = true;
+        auto c = make (p);
+        auto x = sine (1000, 1.5, 48000);
+        c.process (x.data(), nullptr, 48000);
+        float pk = 0; for (int i = 24000; i < 48000; ++i) pk = std::max (pk, std::fabs (x[i]));
+        CHECK (pk < 1.0f && pk > 0.85f, "Auto Trim holds the output under 0 dBFS (peak %.3f)", pk);
+        const float t1 = c.trimDb();
+        CHECK (t1 < -3.0f, "Auto Trim dropped %.2f dB after a 1.5 peak (needs at least 3)", t1);
+        auto q = sine (1000, 0.1, 48000);
+        c.process (q.data(), nullptr, 48000);
+        CHECK (std::fabs (c.trimDb() - t1) < 1e-4f, "Auto Trim never recovers by itself (%.2f dB)", c.trimDb());
+        Params off = p; off.autoTrim = false; auto c2 = make (off);
+        auto y = sine (1000, 1.5, 4800); c2.process (y.data(), nullptr, 4800);
+        float pk2 = 0; for (float v : y) pk2 = std::max (pk2, std::fabs (v));
+        CHECK (pk2 > 1.3f, "Auto Trim off leaves the peak (%.2f)", pk2);
+        // a barely-over peak still drops at least 0.1 dB
+        Params p3 = p; auto c3 = make (p3);
+        auto z = sine (1000, 1.03, 24000); c3.process (z.data(), nullptr, 24000);
+        CHECK (c3.trimDb() <= -0.1f, "a barely over peak trims at least 0.1 dB (%.3f dB)", c3.trimDb());
+    }
+
+    // 14. Level Match brings the processed loudness to the dry loudness.
+    {
+        Params p; p.ratioIndex = 4; p.inputDb = 14; p.outputDb = 12; p.attackMs = 5; p.releaseMs = 200; p.levelMatch = true;
+        auto c = make (p);
+        const int n = 48000 * 14;
+        std::mt19937 rng (3); std::uniform_real_distribution<float> u (-0.3f, 0.3f);
+        std::vector<float> x (n); for (auto& v : x) v = u (rng);
+        auto d = x; c.process (x.data(), nullptr, n);
+        double sd = 0, sw = 0; for (int i = n - 48000 * 2; i < n; ++i) { sd += d[i] * d[i]; sw += x[i] * x[i]; }
+        const double diff = 10.0 * std::log10 (sw / sd);
+        CHECK (std::fabs (diff) < 0.7, "Level Match: output within %.2f dB of the dry level (gain %.1f dB)", diff, c.levelMatchDb());
+        Params off = p; off.levelMatch = false; auto c2 = make (off);
+        auto y = d; c2.process (y.data(), nullptr, n);
+        double sy = 0; for (int i = n - 48000 * 2; i < n; ++i) sy += y[i] * y[i];
+        CHECK (std::fabs (10.0 * std::log10 (sy / sd)) > 3.0, "without Level Match the levels differ a lot (%.1f dB)", 10.0 * std::log10 (sy / sd));
+    }
+
+    // 15. Feedback detector: same static curves as feed-forward, stable, no overshoot.
+    {
+        for (int ri = 1; ri < 8; ++ri)
+        {
+            Params p; p.ratioIndex = ri; p.attackMs = 1.0f; p.releaseMs = 200; p.inputDb = 10;
+            const float ff = dcGr (p, 0.3f, 96000);
+            p.detFeedback = true;
+            const float fb = dcGr (p, 0.3f, 96000);
+            CHECK (std::fabs (ff - fb) < 0.4f, "ratio %d: feedback GR %.2f dB matches feed-forward %.2f dB", ri, fb, ff);
+        }
+        Params p; p.ratioIndex = 7; p.attackMs = 0.05f; p.releaseMs = 50; p.inputDb = 30; p.detFeedback = true; p.dist = DistMode::Dist3;
+        auto c = make (p);
+        std::mt19937 rng (5); std::uniform_real_distribution<float> u (-1.0f, 1.0f);
+        std::vector<float> l (96000); for (auto& v : l) v = u (rng);
+        float grMax = 0; bool bad = false;
+        for (int i = 0; i < 96000; ++i) { c.process (&l[i], nullptr, 1); grMax = std::max (grMax, c.grDb()); if (! std::isfinite (l[i])) bad = true; }
+        CHECK (! bad && grMax < 80.0f, "feedback at Nuke, fastest attack, +30 dB noise stays finite (max GR %.1f dB)", grMax);
+        Params q; q.ratioIndex = 6; q.attackMs = 0.05f; q.releaseMs = 3500; q.detFeedback = true; q.inputDb = 10;
+        auto c2 = make (q); float v, prev = 0, over = 0, last = 0;
+        for (int i = 0; i < 4800; ++i) { v = 0.5f; c2.process (&v, nullptr, 1); last = c2.grDb(); over = std::max (over, last - prev > 0 ? 0.0f : prev - last); prev = last; }
+        CHECK (over < 0.05f, "feedback attack has no ringing (worst step back %.3f dB)", over);
+    }
+
+    // 16. Anti-aliasing: 15 kHz through Dist 3 at HR 28 makes 2nd harmonic 30 kHz, which aliases to 18 kHz.
+    {
+        Params p; p.ratioIndex = 0; p.dist = DistMode::Dist2; p.headroomDb = 28; p.inputDb = 0;
+        const int n = 48000;
+        auto run = [&] (bool aa) {
+            auto c = make (p); c.setAntiAlias (aa);
+            auto x = sine (15000, 0.5, n); c.process (x.data(), nullptr, n);
+            return goertzelAmp (x, 18000, 12000, 24000); };
+        const double on = run (true), off = run (false);
+        const double red = 20.0 * std::log10 (off / std::max (on, 1e-12));
+        CHECK (red > 6.0, "ADAA lowers the 18 kHz alias by %.1f dB (naive %.1f dBFS, ADAA %.1f dBFS)", red, 20.0 * std::log10 (off), 20.0 * std::log10 (std::max (on, 1e-12)));
+    }
+
+    // 17. Indicators: THD LEDs follow the distortion, Redline follows clipping.
+    {
+        Params p; p.ratioIndex = 4; p.dist = DistMode::Dist2; p.inputDb = 12; p.attackMs = 2;
+        auto c = make (p); auto x = sine (200, 0.5, 24000); c.process (x.data(), nullptr, 24000);
+        CHECK (c.thd1Percent(), "THD 1%% LED lights with Dist 2 while compressing (thd %.2f%%)", 100.0f * c.thd());
+        Params q; q.ratioIndex = 0; auto c2 = make (q); auto y = sine (200, 0.05, 24000); c2.process (y.data(), nullptr, 24000);
+        CHECK (! c2.thd1Percent() && ! c2.redline(), "clean quiet signal: no THD LED, no Redline (thd %.3f%%)", 100.0f * c2.thd());
+        Params r; r.ratioIndex = 0; r.outputDb = 12; auto c3 = make (r); auto z = sine (200, 0.9, 24000); c3.process (z.data(), nullptr, 24000);
+        CHECK (c3.redline(), "Redline lights when the output clips");
     }
 
     std::printf ("\n%s (%d failed)\n", fails ? "SOME TESTS FAILED" : "ALL TESTS PASSED", fails);
