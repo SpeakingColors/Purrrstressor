@@ -304,7 +304,7 @@ const ladLeds=[];
   const h=el('button','led-hit');h.style.left=x+'px';h.style.top=y+'px';h.setAttribute('aria-label','Ratio '+t);h.dataset.tip=['1:1 saturation only, no compression.','2:1 long gentle knee.','3:1 gentle knee.','4:1 general purpose.','6:1 a good place to start.','10:1 Opto, program dependent release up to about 20 s.','20:1 hard limiting curve.','Nuke: brick wall limiting.'][i];h.onclick=()=>{st.ratio=i;syncUI()};top.appendChild(h)});
  add('bracket',22,86,'',{width:'486px',height:'50px'});
  const rb=el('button','pbtn');rb.style.left='560px';rb.style.top='116px';rb.setAttribute('aria-label','Cycle ratio');rb.dataset.tip='Next ratio. Shift for the previous one. Careful: going to 1:1 while compressing hard makes the level jump.';rb.onclick=e=>{st.ratio=(st.ratio+(e.shiftKey?7:1))%8;syncUI()};top.appendChild(rb);
- add('sect',536,132,'Ratio',{fontSize:'13px'});
+ add('sect',560,132,'Ratio',{fontSize:'13px',transform:'translateX(-50%)'});
  /* THD + bypass */
  add('lbl',655,16,'THD level');
  const l1=add('led',662,70);l1.style.color='var(--y)';add('lnum',715,70,'1% THD',{transform:'translate(-50%,-50%)'});
@@ -317,7 +317,7 @@ const ladLeds=[];
   h.onclick=()=>{const m={hp:'detHP',band:'detBand',link:'link'}[k];st[m]^=1;syncUI()};top.appendChild(h);return l});
  const db=el('button','pbtn');db.style.left='812px';db.style.top='116px';db.setAttribute('aria-label','Cycle detector mode');db.dataset.tip='Cycle the detector modes in the hardware order: Norm, HP, Band, HP+Band, Link, Link+HP, Link+Band, all.';
  db.onclick=e=>{let i=st.detBand*2+st.detHP+st.link*4;i=(i+(e.shiftKey?7:1))%8;st.detHP=i&1;st.detBand=(i>>1)&1;st.link=(i>>2)&1;syncUI()};top.appendChild(db);
- add('sect',790,132,'Detector').style.fontSize='13px';
+ add('sect',812,132,'Detector',{fontSize:'13px',transform:'translateX(-50%)'});
  /* Audio */
  add('lbl',895,16,'Audio');
  const al=[['hp','HP','var(--g)'],['d2','Dist 2','var(--y)'],['d3','Dist 3','var(--r)']].map(([k,t,c],i)=>{const y=40+i*25,x=920;const l=add('led',x,y);l.style.color=c;add('lnum',x+36,y,t,{transform:'translate(-50%,-50%)',fontSize:'12px',fontFamily:'var(--font-ui)'});
@@ -326,7 +326,7 @@ const ladLeds=[];
   h.onclick=()=>{if(k==='hp')st.audioHP^=1;else{const v=k==='d2'?1:2;st.dist=st.dist===v?0:v}syncUI()};top.appendChild(h);return l});
  const ab=el('button','pbtn');ab.style.left='932px';ab.style.top='116px';ab.setAttribute('aria-label','Cycle audio mode');ab.dataset.tip='Cycle the audio modes: Norm, HP, Dist 2, Dist 2+HP, Dist 3, Dist 3+HP.';
  ab.onclick=e=>{const seq=[[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]];let i=seq.findIndex(s=>s[0]===st.dist&&s[1]===st.audioHP);i=(i+(e.shiftKey?5:1))%6;st.dist=seq[i][0];st.audioHP=seq[i][1];syncUI()};top.appendChild(ab);
- add('sect',914,132,'Audio').style.fontSize='13px';
+ add('sect',932,132,'Audio',{fontSize:'13px',transform:'translateX(-50%)'});
  l1.dataset.tip='Indicator, not a button: lights when the added distortion reaches about 1% THD. Switch distortion on with Dist 2 or Dist 3 in the Audio section.';l2.dataset.tip='Indicator, not a button: lights when the added distortion gets heavy (about 3% THD).';
  top._ref={rLeds,l1,l2,dl,al}})();
 /* ============ Knobs ============ */
