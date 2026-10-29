@@ -126,6 +126,7 @@ button,select,input{font-family:var(--font-ui)}
             <button class="btn" id="pSave" data-tip="Save these settings as your own preset. Asks before overwriting.">Save</button>
           </div>
           <div class="sp"></div>
+          <button class="btn" id="bBypass" aria-pressed="false" data-tip="Bypass: hear the dry signal to compare with the processed sound (B). The meters keep moving.">Bypass</button>
           <button class="btn" id="bGuide" data-tip="Short guide and keyboard shortcuts.">Guide</button>
           <button class="btn" id="bSettings" data-tip="Info bubbles, power saving, colour look.">Settings</button>
           <button class="btn" id="bAbout" data-tip="About Purrrstressor, support and where your files live.">About &amp; Support</button>
@@ -304,12 +305,9 @@ const ladLeds=[];
  const rb=el('button','pbtn');rb.style.left='560px';rb.style.top='116px';rb.setAttribute('aria-label','Cycle ratio');rb.dataset.tip='Next ratio. Shift for the previous one. Careful: going to 1:1 while compressing hard makes the level jump.';rb.onclick=e=>{st.ratio=(st.ratio+(e.shiftKey?7:1))%8;syncUI()};top.appendChild(rb);
  add('sect',536,132,'Ratio',{fontSize:'13px'});
  /* THD + bypass */
- add('lbl',645,16,'Distortion');
+ add('lbl',655,16,'THD level');
  const l1=add('led',662,48);l1.style.color='var(--y)';add('lnum',715,48,'1% THD',{transform:'translate(-50%,-50%)'});
  const l2=add('led',662,72);l2.style.color='var(--r)';add('lnum',715,72,'Redline');
- const bl=add('led',662,112);bl.style.color='var(--r)';
- const bb=el('button','pbtn');bb.style.left='712px';bb.style.top='116px';bb.setAttribute('aria-label','Bypass');bb.dataset.tip='Bypass: hear the dry signal to compare (B). The meter keeps moving.';bb.onclick=()=>{st.bypass^=1;syncUI()};top.appendChild(bb);
- add('sect',690,132,'Bypass').style.fontSize='13px';
  /* Detector */
  add('lbl',775,16,'Detector');
  const dl=[['hp','HP','var(--g)'],['band','Band','var(--y)'],['link','Link','var(--r)']].map(([k,t,c],i)=>{const y=40+i*25,x=800;const l=add('led',x,y);l.style.color=c;add('lnum',x+34,y,t,{transform:'translate(-50%,-50%)',fontSize:'12px',fontFamily:'var(--font-ui)'});
@@ -328,7 +326,8 @@ const ladLeds=[];
  const ab=el('button','pbtn');ab.style.left='932px';ab.style.top='116px';ab.setAttribute('aria-label','Cycle audio mode');ab.dataset.tip='Cycle the audio modes: Norm, HP, Dist 2, Dist 2+HP, Dist 3, Dist 3+HP.';
  ab.onclick=e=>{const seq=[[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]];let i=seq.findIndex(s=>s[0]===st.dist&&s[1]===st.audioHP);i=(i+(e.shiftKey?5:1))%6;st.dist=seq[i][0];st.audioHP=seq[i][1];syncUI()};top.appendChild(ab);
  add('sect',914,132,'Audio').style.fontSize='13px';
- top._ref={rLeds,l1,l2,bl,dl,al}})();
+ l1.dataset.tip='Indicator, not a button: lights when the added distortion reaches about 1% THD. Switch distortion on with Dist 2 or Dist 3 in the Audio section.';l2.dataset.tip='Indicator, not a button: lights when the added distortion gets heavy (about 3% THD).';
+ top._ref={rLeds,l1,l2,dl,al}})();
 /* ============ Knobs ============ */
 const KN=[
  {id:'input',lab:'Input',def:5,max:10,tip:'Input gain and threshold together. Drive harder for more compression and more colour. 0 to +30 dB.',val:v=>`<b>${v.toFixed(1)}</b> &middot; +${(v*3).toFixed(1)} dB`},
@@ -369,7 +368,7 @@ function syncUI(){
  KN.forEach(k=>{const r=knobRefs[k.id];r.kn.querySelector('.rot').setAttribute('transform','rotate('+ang(st[k.id],k.max)+' 75 75)');r.v.innerHTML=k.val(st[k.id]);r.kn.setAttribute('aria-valuenow',st[k.id].toFixed(2))});
  hr.textContent=(4+4*st.headroom)+' dB';at.classList.toggle('on',!!st.autoTrim);
  const R=top._ref;R.rLeds.forEach((l,i)=>l.classList.toggle('on',i===st.ratio));
- R.bl.classList.toggle('on',!!st.bypass);
+ {const bb=$('#bBypass');bb.classList.toggle('on',!!st.bypass);bb.setAttribute('aria-pressed',st.bypass?'true':'false')}
  R.dl[0].classList.toggle('on',!!st.detHP);R.dl[1].classList.toggle('on',!!st.detBand);R.dl[2].classList.toggle('on',!!st.link);
  R.al[0].classList.toggle('on',!!st.audioHP);R.al[1].classList.toggle('on',st.dist===1);R.al[2].classList.toggle('on',st.dist===2);
  eng.setP(core());
@@ -514,6 +513,7 @@ function openSave(edit){const p0=edit||null;const body=el('div','','<label>Name 
   if(p0)p0.oldName=cur.name;doSave(name)},'on')];
  openModal(p0?'Edit preset':'Save preset',body,foot,'520px')}
 $('#pSave').onclick=()=>openSave();
+$('#bBypass').onclick=()=>{st.bypass^=1;syncUI()};
 function openExport(p){const data=p?{purrrstressor:1,presets:[{name:p.name,type:p.type,tags:p.tags,p:p.p}]}:{purrrstressor:1,presets:user.map(x=>({name:x.name,type:x.type,tags:x.tags,p:x.p}))};
  const body=el('div','','<p>Copy this text and keep it as your backup. Import it again later or on another computer.</p><textarea id="exT" readonly></textarea>');body.querySelector('#exT').value=JSON.stringify(data,null,1);
  const foot=[btn('Copy',()=>{const t=body.querySelector('#exT');t.select();try{navigator.clipboard.writeText(t.value).then(()=>toast('Copied'),()=>toast('Press Ctrl+C to copy'))}catch(e){toast('Press Ctrl+C to copy')}}),btn('Back',openBrowser)];openModal('Export',body,foot,'620px')}
