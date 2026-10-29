@@ -306,8 +306,8 @@ const ladLeds=[];
  add('sect',536,132,'Ratio',{fontSize:'13px'});
  /* THD + bypass */
  add('lbl',655,16,'THD level');
- const l1=add('led',662,48);l1.style.color='var(--y)';add('lnum',715,48,'1% THD',{transform:'translate(-50%,-50%)'});
- const l2=add('led',662,72);l2.style.color='var(--r)';add('lnum',715,72,'Redline');
+ const l1=add('led',662,70);l1.style.color='var(--y)';add('lnum',715,70,'1% THD',{transform:'translate(-50%,-50%)'});
+ const l2=add('led',662,98);l2.style.color='var(--r)';add('lnum',715,98,'Redline');
  /* Detector */
  add('lbl',775,16,'Detector');
  const dl=[['hp','HP','var(--g)'],['band','Band','var(--y)'],['link','Link','var(--r)']].map(([k,t,c],i)=>{const y=40+i*25,x=800;const l=add('led',x,y);l.style.color=c;add('lnum',x+34,y,t,{transform:'translate(-50%,-50%)',fontSize:'12px',fontFamily:'var(--font-ui)'});
