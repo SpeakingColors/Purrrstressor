@@ -205,9 +205,9 @@ const RLAB=['1:1','2:1','3:1','4:1','6:1','10:1','20:1','Nuke'];
 function grTarget(L,ri){const R=RAT[ri],w=KNEE[ri],over=L-THR;if(2*over<-w)return 0;let out;
  if(2*Math.abs(over)<=w){const k=over+w*.5;out=L+(1/R-1)*k*k/(2*w)}else out=THR+over/R;return Math.max(0,L-out)}
 class Engine{
- constructor(){this.fs=48000;this.p={inputDb:0,outputDb:0,attackMs:10,releaseMs:200,ratioIndex:3,detHP:false,detBand:false,link:true,audioHP:false,dist:0,headroomDb:16,mix:1,bypass:false,autoTrim:false};
+ constructor(){this.fs=48000;this.p={inputDb:0,outputDb:0,attackMs:10,releaseMs:200,ratioIndex:3,detHP:false,detBand:false,link:true,audioHP:false,dist:0,headroomDb:16,mix:1,bypass:false,autoTrim:false,levelMatch:false};
   this.detHP=[new OP(),new OP()];this.detBand=[new BQ(),new BQ()];this.audHP=[new BHP3(),new BHP3()];
-  this.trimLin=1;this.gr=[0,0];this.grPk=0;this.curIn=1;this.curOut=1;this.dcX=[0,0];this.dcY=[0,0];this.inPk=0;this.outPk=0;this.setP(this.p);this.prepare(48000)}
+  this.trimLin=1;this.lm=1;this.eD=0;this.eW=0;this.gr=[0,0];this.grPk=0;this.curIn=1;this.curOut=1;this.dcX=[0,0];this.dcY=[0,0];this.inPk=0;this.outPk=0;this.setP(this.p);this.prepare(48000)}
  prepare(fs){this.fs=fs;this.sc=1-Math.exp(-1/(0.010*fs));this.dcR=1-6.283185*10/fs;
   for(let c=0;c<2;c++){this.detHP[c].set(fs,100);this.detBand[c].peak(fs,6000,.7,9);this.audHP[c].set(fs,60)}this.setP(this.p);this.curIn=this.tIn;this.curOut=this.tOut}
  setP(np){const p=Object.assign(this.p,np);p.attackMs=Math.min(30,Math.max(.05,p.attackMs));p.releaseMs=Math.min(3500,Math.max(50,p.releaseMs));
@@ -226,10 +226,11 @@ class Engine{
    if(comp){if(p.link){this.gr[0]=this.smooth(this.gr[0],grTarget(Math.max(lv[0],lv[1]),ri),ri);this.gr[1]=this.gr[0]}
     else{this.gr[0]=this.smooth(this.gr[0],grTarget(lv[0],ri),ri);this.gr[1]=this.smooth(this.gr[1],grTarget(lv[1],ri),ri)}}else this.gr[0]=this.gr[1]=0;
    gm=Math.max(gm,this.gr[0],this.gr[1]);
-   for(let c=0;c<2;c++){let y=x[c]*D2L(-this.gr[c]);if(p.dist)y=this.dist(y,this.gr[c],c);if(p.audioHP)y=this.audHP[c].p(y);const w=y*this.curOut;
+   for(let c=0;c<2;c++){let y=x[c]*D2L(-this.gr[c]);if(p.dist)y=this.dist(y,this.gr[c],c);if(p.audioHP)y=this.audHP[c].p(y);let w=y*this.curOut;if(p.levelMatch){const k=1-Math.exp(-1/(1.0*this.fs));this.eD+=(dry[c]*dry[c]-this.eD)*k;this.eW+=(w*w-this.eW)*k;if(this.eD>1e-9&&this.eW>1e-9){const t=Math.min(16,Math.max(.0625,Math.sqrt(this.eD/this.eW)));this.lm+=(t-this.lm)*(1-Math.exp(-1/(2.0*this.fs)))}w*=this.lm}
     let o=p.mix>=1?w:(p.mix<=0?dry[c]:dry[c]*(1-p.mix)+w*p.mix);if(!isFinite(o)){this.reset();o=0}if(p.autoTrim){o*=this.trimLin;const a=Math.abs(o);if(a>=1)this.trimLin*=0.98855/a}ch[c][i]=o;op=Math.max(op,Math.abs(o))}}
   this.grPk=p.bypass?0:gm;this.inPk=Math.max(ip,this.inPk*Math.pow(.9,n/512));this.outPk=Math.max(op,this.outPk*Math.pow(.9,n/512));this.grNow=this.gr[0];this.lastIn=ip;this.lastOut=op}
  resetTrim(){this.trimLin=1}
+ resetLM(){this.lm=1;this.eD=0;this.eW=0}
  reset(){for(let c=0;c<2;c++){this.detHP[c].reset();this.detBand[c].reset();this.audHP[c].reset();this.dcX[c]=this.dcY[c]=0}this.gr=[0,0]}}
 /* ============ Preview sources (synthesised, deterministic) ============ */
 const BPM=140,STEP=60/BPM/4,KP=[1,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0],SP=[0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1],HP_=[0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,1],CP=[1,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0];
@@ -248,10 +249,10 @@ function srcSample(kind,i,fs){const t=i/fs;let v=0;
  return v}
 function fillSrc(kind,pos,n,L,R,fs){for(let i=0;i<n;i++){const s=srcSample(kind,pos+i,fs);L[i]=s;R[i]=kind==='chords'||kind==='mix'?srcSample(kind,pos+i+23,fs)*.9+s*.1:s}}
 /* ============ State, mapping, presets ============ */
-const DEF={input:5,attack:5,release:5,output:5,mix:100,ratio:4,detHP:0,detBand:0,link:1,audioHP:0,dist:0,headroom:3,bypass:0,autoTrim:0};
+const DEF={input:5,attack:5,release:5,output:5,mix:100,ratio:4,detHP:0,detBand:0,link:1,audioHP:0,dist:0,headroom:3,bypass:0,autoTrim:0,levelMatch:0};
 const st=Object.assign({},DEF);
 const mapAttack=k=>0.05*Math.pow(600,k/10), mapRelease=k=>50*Math.pow(70,k/10);
-function core(){return{inputDb:st.input*3,outputDb:(st.output-5)*4.8,attackMs:mapAttack(st.attack),releaseMs:mapRelease(st.release),ratioIndex:st.ratio,detHP:!!st.detHP,detBand:!!st.detBand,link:!!st.link,audioHP:!!st.audioHP,dist:st.dist,headroomDb:4+4*st.headroom,mix:st.mix/100,bypass:!!st.bypass,autoTrim:!!st.autoTrim}}
+function core(){return{inputDb:st.input*3,outputDb:(st.output-5)*4.8,attackMs:mapAttack(st.attack),releaseMs:mapRelease(st.release),ratioIndex:st.ratio,detHP:!!st.detHP,detBand:!!st.detBand,link:!!st.link,audioHP:!!st.audioHP,dist:st.dist,headroomDb:4+4*st.headroom,mix:st.mix/100,bypass:!!st.bypass,autoTrim:!!st.autoTrim,levelMatch:!!st.levelMatch}}
 const TYPES=['Vocal','Bass','Drum','Keys','Guitar','Bus','FX'];
 const F=(name,type,tags,p)=>({name,type,tags,p:Object.assign({},DEF,p),factory:true});
 const FACTORY=[
@@ -272,7 +273,7 @@ const FACTORY=[
 ];
 let user=[];try{user=JSON.parse(localStorage.getItem('purrrstressor-presets')||'[]').filter(validPreset)}catch(e){user=[]}
 function validPreset(o){if(!o||typeof o!=='object'||typeof o.name!=='string'||!o.name||o.name.length>60||!o.p||typeof o.p!=='object')return false;
- const lim={input:[0,10],attack:[0,10],release:[0,10],output:[0,10],mix:[0,100],ratio:[0,7],detHP:[0,1],detBand:[0,1],link:[0,1],audioHP:[0,1],dist:[0,2],headroom:[0,6],bypass:[0,1],autoTrim:[0,1]};
+ const lim={input:[0,10],attack:[0,10],release:[0,10],output:[0,10],mix:[0,100],ratio:[0,7],detHP:[0,1],detBand:[0,1],link:[0,1],audioHP:[0,1],dist:[0,2],headroom:[0,6],bypass:[0,1],autoTrim:[0,1],levelMatch:[0,1]};
  for(const k in o.p){if(!(k in lim))continue;const v=o.p[k];if(typeof v!=='number'||!isFinite(v)||v<lim[k][0]||v>lim[k][1])return false}return true}
 function normPreset(o){const p=Object.assign({},DEF);for(const k in DEF)if(typeof o.p[k]==='number')p[k]=o.p[k];
  return{name:String(o.name).slice(0,60),type:TYPES.includes(o.type)?o.type:'Bus',tags:Array.isArray(o.tags)?o.tags.filter(t=>typeof t==='string').slice(0,8).map(t=>t.slice(0,20)):[],p,factory:false}}
@@ -281,7 +282,7 @@ let cur={list:'f',idx:0};
 const allPresets=()=>FACTORY.concat(user);
 function curPreset(){return allPresets().find(x=>x.name===cur.name)||FACTORY[0]}
 cur.name='Start Here 5555';
-function loadPreset(p){Object.assign(st,DEF,p.p);eng.resetTrim();cur.name=p.name;$('#pName').textContent=p.name;syncUI();toast('Loaded '+p.name)}
+function loadPreset(p){Object.assign(st,DEF,p.p);eng.resetTrim();eng.resetLM();cur.name=p.name;$('#pName').textContent=p.name;syncUI();toast('Loaded '+p.name)}
 /* ============ DOM helpers ============ */
 const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
 const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!==undefined)e.innerHTML=h;return e};
@@ -361,18 +362,20 @@ hrCell.appendChild(hr);const hrNote=el('div','kval','less colour &larr; &rarr; m
 knobsEl.insertBefore(hrCell,mixCell);
 const at=el('button','btn');at.style.cssText='margin-top:8px;width:80px;padding:3px 2px;font-size:12px;line-height:1.15;text-align:center';at.dataset.tip='Auto Trim: if the output ever reaches 0 dB, the output is turned down by that amount and stays there. It never turns back up by itself. Each time the output reaches 0 dB it turns down by that overshoot plus 0.1 dB. The readout turns pink once it has trimmed. Click twice (off, on) to reset. Off by default.';
 at.onclick=()=>{st.autoTrim^=1;eng.resetTrim();syncUI()};$('.meters').appendChild(at);
+const lmb=el('button','btn');lmb.style.cssText='margin-top:6px;width:80px;padding:3px 2px;font-size:12px;line-height:1.15;text-align:center';lmb.dataset.tip='Level Match: slowly adjusts the output so the processed sound is as loud as the dry sound, for a fair comparison (louder always sounds better). It overrides the Output knob while on. Turn it off when you are done comparing. Off by default.';
+lmb.onclick=()=>{st.levelMatch^=1;eng.resetLM();syncUI()};$('.meters').appendChild(lmb);
 function clamp(v,a,b){return Math.min(b,Math.max(a,v))}
 /* ============ Sync UI from state ============ */
 function syncUI(){
  const ang=(v,max)=>-135+270*v/max;
  KN.forEach(k=>{const r=knobRefs[k.id];r.kn.querySelector('.rot').setAttribute('transform','rotate('+ang(st[k.id],k.max)+' 75 75)');r.v.innerHTML=k.val(st[k.id]);r.kn.setAttribute('aria-valuenow',st[k.id].toFixed(2))});
- hr.textContent=(4+4*st.headroom)+' dB';at.classList.toggle('on',!!st.autoTrim);
+ hr.textContent=(4+4*st.headroom)+' dB';lmb.classList.toggle('on',!!st.levelMatch);at.classList.toggle('on',!!st.autoTrim);
  const R=top._ref;R.rLeds.forEach((l,i)=>l.classList.toggle('on',i===st.ratio));
  {const bb=$('#bBypass');bb.classList.toggle('on',!!st.bypass);bb.setAttribute('aria-pressed',st.bypass?'true':'false')}
  R.dl[0].classList.toggle('on',!!st.detHP);R.dl[1].classList.toggle('on',!!st.detBand);R.dl[2].classList.toggle('on',!!st.link);
  R.al[0].classList.toggle('on',!!st.audioHP);R.al[1].classList.toggle('on',st.dist===1);R.al[2].classList.toggle('on',st.dist===2);
  eng.setP(core());
- if(!st.autoTrim)eng.resetTrim();
+ if(!st.autoTrim)eng.resetTrim();if(!st.levelMatch)eng.resetLM();
  $('#pName').textContent=cur.name+(isDirty()?' *':'');
 }
 function isDirty(){const p=curPreset();for(const k in DEF)if(Math.abs((p.p[k]||0)-st[k])>1e-6)return true;return false}
@@ -451,7 +454,7 @@ function frameLoop(t){requestAnimationFrame(frameLoop);if(!visible||document.hid
  hist[hi]=eng.grPk;hi=(hi+1)%360;
  drawMeter($('#cvIn'),eng.inPk,'in');drawMeter($('#cvOut'),eng.outPk,'out');
  $('#pkIn').textContent=eng.inPk>1e-4?L2D(eng.inPk).toFixed(1):'-inf';$('#pkOut').textContent=eng.outPk>1e-4?L2D(eng.outPk).toFixed(1):'-inf';
- drawCurve();drawFilt();drawHist();drawLeds();{const tr=L2D(eng.trimLin),act=st.autoTrim&&tr<-0.05;at.innerHTML='Auto Trim<br>'+(st.autoTrim?(act?tr.toFixed(1)+' dB':'ON, armed'):'off');at.style.borderColor=act?'#FF1383':'';at.style.color=act?'#FF7BB1':''}}
+ drawCurve();drawFilt();drawHist();drawLeds();{const lg=L2D(eng.lm);lmb.innerHTML='Level Match<br>'+(st.levelMatch?(lg>=0?'+':'')+lg.toFixed(1)+' dB':'off');const tr=L2D(eng.trimLin),act=st.autoTrim&&tr<-0.05;at.innerHTML='Auto Trim<br>'+(st.autoTrim?(act?tr.toFixed(1)+' dB':'ON, armed'):'off');at.style.borderColor=act?'#FF1383':'';at.style.color=act?'#FF7BB1':''}}
 $('#cvIn').onclick=()=>clipLatch.in=false;$('#cvOut').onclick=()=>clipLatch.out=false;
 new IntersectionObserver(es=>{visible=es[0].isIntersecting}).observe(frame);
 /* ============ Modals ============ */
