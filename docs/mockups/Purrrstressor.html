@@ -58,7 +58,7 @@ button,select,input{font-family:var(--font-ui)}
 .rig .hint{font-size:13px;color:var(--dim);max-width:380px;line-height:1.2}
 .meters{border-left:1px solid var(--line);background:var(--plate2);display:flex;flex-direction:column;align-items:center;padding:8px 0 6px;gap:2px}
 .meters .mrow{display:flex;gap:4px;align-items:flex-start}
-.meters .cap{font-size:12px;letter-spacing:1.5px;color:var(--title);text-transform:uppercase;display:flex;gap:30px}
+.meters .cap{font-size:12px;letter-spacing:1.5px;color:var(--title);text-transform:uppercase;display:flex;gap:26px;margin-right:21px}
 .meters .pk{font-family:var(--font-num);font-size:11px;color:var(--dim);display:flex;gap:6px;margin-top:2px}
 .foot{height:26px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;color:var(--dim);letter-spacing:1px;border-top:1px solid var(--line);background:var(--plate2)}
 /* top plate */
@@ -153,7 +153,7 @@ button,select,input{font-family:var(--font-ui)}
           </div>
           <aside class="meters">
             <div class="cap"><span>In</span><span>Out</span></div>
-            <div class="mrow"><canvas id="cvIn" width="26" height="300"></canvas><canvas id="cvOut" width="26" height="300"></canvas></div>
+            <div class="mrow"><canvas id="cvIn" width="38" height="300"></canvas><canvas id="cvOut" width="38" height="300"></canvas></div>
             <div class="pk"><span id="pkIn">-inf</span><span id="pkOut">-inf</span></div>
           </aside>
         </div>
@@ -400,10 +400,10 @@ function drawMeter(cv,lin,key){const g=cv.getContext('2d'),w=cv.width,h=cv.heigh
  const db=L2D(lin),top=y(db);
  const grad=g.createLinearGradient(0,y(mn),0,y(mx));const f=db2=>(db2-mn)/(mx-mn);
  grad.addColorStop(0,'#6CC9F5');grad.addColorStop(f(-12),'#6CC9F5');grad.addColorStop(f(-12)+.001,'#A43DFF');grad.addColorStop(f(0),'#A43DFF');grad.addColorStop(f(0)+.001,'#FF1383');grad.addColorStop(1,'#FF1383');
- g.fillStyle=grad;g.fillRect(2,top,w-12,y(mn)-top);
+ g.fillStyle=grad;g.fillRect(2,top,12,y(mn)-top);
  g.fillStyle=T.dim;g.font='9px JetBrains Mono,monospace';g.textAlign='right';
- for(const t of[0,-6,-12,-24,-36,-48]){const yy=y(t);g.fillRect(w-9,yy,4,1);g.fillText(String(t),w-1,yy+3)}
- if(db>=0)clipLatch[key]=true;g.fillStyle=clipLatch[key]?'#FF1383':'#2a2c31';g.fillRect(2,0,w-12,4)}
+ for(const t of[0,-6,-12,-24,-36,-48]){const yy=y(t);g.fillRect(14,yy,3,1);g.fillText(String(t),w-1,yy+3)}
+ if(db>=0)clipLatch[key]=true;g.fillStyle=clipLatch[key]?'#FF1383':'#2a2c31';g.fillRect(2,0,12,4)}
 const hist=new Float32Array(360);let hi=0;
 function drawCurve(){const cv=$('#cvCurve'),g=cv.getContext('2d'),w=cv.width,h=cv.height;g.fillStyle=T.disp;g.fillRect(0,0,w,h);
  const x0=-60,x1=6,y0=-60,y1=18,X=v=>24+(v-x0)/(x1-x0)*(w-30),Y=v=>h-14-(v-y0)/(y1-y0)*(h-22);

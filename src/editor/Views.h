@@ -202,17 +202,17 @@ public:
         grad.addColour (f (0.0f), theme::purple);
         grad.addColour (f (0.0f) + 0.001, theme::red);
         g.setGradientFill (grad);
-        g.fillRect (2.0f, top, w - 12.0f, y (mn) - top);
+        g.fillRect (2.0f, top, 12.0f, y (mn) - top);
         g.setFont (theme::font (theme::FontKind::mono, 9.0f));
         for (float tk : { 0.0f, -6.0f, -12.0f, -24.0f, -36.0f, -48.0f })
         {
             const float yy = y (tk);
             g.setColour (t.dim);
-            g.fillRect (w - 9.0f, yy, 4.0f, 1.0f);
+            g.fillRect (14.0f, yy, 3.0f, 1.0f);
             g.drawSingleLineText (String ((int) tk), roundToInt (w - 1.0f), roundToInt (yy + 3.0f), Justification::right);
         }
         g.setColour (latch ? theme::red : Colour (0xff2a2c31));
-        g.fillRect (2.0f, 0.0f, w - 12.0f, 4.0f);
+        g.fillRect (2.0f, 0.0f, 12.0f, 4.0f);
     }
     void mouseDown (const MouseEvent&) override { latch = false; repaint(); }
 private:
