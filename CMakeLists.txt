@@ -16,6 +16,14 @@ FetchContent_Declare(JUCE
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(JUCE)
 
+juce_add_binary_data(PurrrAssets SOURCES
+    assets/fonts/BarlowCondensed-Medium.ttf
+    assets/fonts/BarlowCondensed-SemiBold.ttf
+    assets/fonts/BarlowCondensed-Bold.ttf
+    assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf
+    assets/fonts/JetBrainsMono-Regular.ttf)
+set_target_properties(PurrrAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 juce_add_plugin(Purrrstressor
     COMPANY_NAME "Studio 87"
     PLUGIN_MANUFACTURER_CODE Stu8
@@ -28,10 +36,21 @@ juce_add_plugin(Purrrstressor
     COPY_PLUGIN_AFTER_BUILD FALSE
     PRODUCT_NAME "Purrrstressor")
 
-target_sources(Purrrstressor PRIVATE
+set(PURR_SOURCES
     src/plugin/PluginProcessor.cpp
     src/plugin/PluginProcessor.h
-    src/core/Purrrstressor.h)
+    src/core/Purrrstressor.h
+    src/editor/PluginEditor.cpp
+    src/editor/PluginEditor.h
+    src/editor/Presets.cpp
+    src/editor/Presets.h
+    src/editor/Dialogs.cpp
+    src/editor/Dialogs.h
+    src/editor/Theme.h
+    src/editor/Layout.h
+    src/editor/Widgets.h
+    src/editor/Views.h)
+target_sources(Purrrstressor PRIVATE ${PURR_SOURCES})
 
 target_compile_definitions(Purrrstressor PUBLIC
     JUCE_WEB_BROWSER=0
@@ -41,5 +60,15 @@ target_compile_definitions(Purrrstressor PUBLIC
     JUCE_REPORT_APP_USAGE=0)
 
 target_link_libraries(Purrrstressor
-    PRIVATE juce::juce_audio_utils
+    PRIVATE PurrrAssets juce::juce_audio_utils
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+# Offscreen window renderer for checking the editor against the mockup (not part of releases).
+option(PURR_BUILD_SNAPSHOT "Build the editor snapshot tool" OFF)
+if(PURR_BUILD_SNAPSHOT)
+    juce_add_console_app(PurrrSnapshot PRODUCT_NAME "PurrrSnapshot")
+    target_sources(PurrrSnapshot PRIVATE tools/snapshot.cpp ${PURR_SOURCES})
+    target_compile_definitions(PurrrSnapshot PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+        JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1 JucePlugin_Name="Purrrstressor" JucePlugin_VersionString="0.1.0")
+    target_link_libraries(PurrrSnapshot PRIVATE PurrrAssets juce::juce_audio_utils juce::juce_recommended_config_flags)
+endif()

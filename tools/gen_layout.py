@@ -4,6 +4,13 @@ from the mockup page). The native editor takes every position, size, label and t
 the mockup this way, so the two cannot drift apart. Run from the repo root."""
 import json
 d = json.load(open('docs/mockups/layout.json'))
+# The mockup page has a preview rig under the knobs ("not part of the plugin"). The real window
+# leaves it out: 96 px shorter, and everything below the knobs moves up by that much.
+RIG = 96
+for k in ('cheekL', 'cheekR'): d[k][3] -= RIG
+for k in ('body', 'meters'): d[k][3] -= RIG
+d['foot'][1] -= RIG
+d['winsz'][1] -= RIG
 ox, oy = d['topAbs'][0], d['topAbs'][1]
 col = {'var(--g)': 0, 'var(--y)': 1, 'var(--o)': 2, 'var(--r)': 3, 'var(--b)': 4}
 top = d['top']
@@ -28,7 +35,7 @@ o.append('struct Led { float cx, cy; int color; };          // color: 0 green, 1
 o.append('struct Hit { Rc r; const char* tip; const char* name; };')
 o.append('struct Txt { const char* s; Rc r; float size; bool ui; bool bold; float spacing; bool upper; bool title; };')
 o.append('struct Btn { Rc r; const char* tip; };')
-o.append('constexpr int W = 1200, H = 640;')
+o.append('constexpr int W = 1200, H = 544;')
 for k in ['cheekL', 'cheekR', 'hdr', 'body', 'top', 'disp', 'knobs', 'meters', 'foot', 'logo', 'name', 's87', 'pPrev', 'pName', 'pNext', 'pSave', 'bBypass', 'bGuide', 'bSettings', 'bAbout', 'cvCurve', 'cvFilt', 'cvHist', 'cvIn', 'cvOut', 'pkIn', 'pkOut', 'winsz']:
     if k == 'top': r = d['topAbs']
     else: r = d[k]

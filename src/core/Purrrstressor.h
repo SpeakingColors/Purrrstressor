@@ -29,6 +29,12 @@ struct Biquad
 {
     float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
     void reset() { z1 = z2 = 0; }
+    // Magnitude response (linear) at f Hz, for the editor's filter display.
+    double mag (double f, double fs) const
+    {
+        const std::complex<double> z1i = std::polar (1.0, -6.283185307179586 * f / fs), z2i = z1i * z1i;
+        return std::abs (((double) b0 + (double) b1 * z1i + (double) b2 * z2i) / (1.0 + (double) a1 * z1i + (double) a2 * z2i));
+    }
     float process (float x)
     {
         const float y = b0 * x + z1;
@@ -66,6 +72,11 @@ struct OnePoleHP
 {
     float b0 = 1, b1 = -1, a1 = 0, x1 = 0, y1 = 0;
     void reset() { x1 = y1 = 0; }
+    double mag (double f, double fs) const
+    {
+        const std::complex<double> z = std::polar (1.0, -6.283185307179586 * f / fs);
+        return std::abs (((double) b0 + (double) b1 * z) / (1.0 + (double) a1 * z));
+    }
     float process (float x)
     {
         const float y = b0 * x + b1 * x1 - a1 * y1;
@@ -89,6 +100,7 @@ struct BesselHP3
     OnePoleHP one;
     Biquad two;
     void reset() { one.reset(); two.reset(); }
+    double mag (double f, double fs) const { return one.mag (f, fs) * two.mag (f, fs); }
     float process (float x) { return two.process (one.process (x)); }
     void set (double fs, double fc)
     {
@@ -363,6 +375,20 @@ public:
         }
     }
 
+    // For the editor displays: the static transfer curve and the filter responses (dB).
+    static float staticGrDb (float levelDb, int ri) { return grTarget (levelDb, ri); }
+    static float detectorResponseDb (bool hp, bool band, double fs, double f)
+    {
+        double m = 1.0;
+        if (hp)   { OnePoleHP h; h.set (fs, kDetHPHz); m *= h.mag (f, fs); }
+        if (band) { Biquad b; b.setPeak (fs, kBandHz, 0.7, kBandGainDb); m *= b.mag (f, fs); }
+        return (float) (20.0 * std::log10 (std::max (m, 1.0e-9)));
+    }
+    static float audioHpResponseDb (double fs, double f)
+    {
+        BesselHP3 h; h.set (fs, kAudioHPHz);
+        return (float) (20.0 * std::log10 (std::max (h.mag (f, fs), 1.0e-9)));
+    }
     float grDb() const { return grMeter; }           // positive dB, for the GR meter
     float levelMatchDb() const { return linToDb (lmGain); }
     float trimDb() const { return linToDb (trimLin); }  // 0 or negative

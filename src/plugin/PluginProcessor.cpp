@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "../editor/PluginEditor.h"
 
 using namespace juce;
 
@@ -7,12 +8,22 @@ AudioProcessorValueTreeState::ParameterLayout PurrrstressorProcessor::createLayo
     std::vector<std::unique_ptr<RangedAudioParameter>> p;
     const int v = 1; // parameter version
 
+    // The ranges follow the faceplate knobs: normalised value x 10 is the number printed on the
+    // dial (Input 0..10 = 0..30 dB, Attack 0.05 ms * 600^(k/10), Release 50 ms * 70^(k/10)).
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ids::input, v }, "Input",
-        NormalisableRange<float> (0.0f, 30.0f, 0.01f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
+        NormalisableRange<float> (0.0f, 30.0f, 0.01f), 15.0f, AudioParameterFloatAttributes().withLabel ("dB")));
+    auto expRange = [] (float lo, float hi)
+    {
+        const float ratio = hi / lo;
+        return NormalisableRange<float> (lo, hi,
+            [lo, ratio] (float, float, float n) { return lo * std::pow (ratio, n); },
+            [lo, ratio] (float, float, float x) { return std::log (x / lo) / std::log (ratio); },
+            [lo, hi] (float, float, float x) { return jlimit (lo, hi, x); });
+    };
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ids::attack, v }, "Attack",
-        NormalisableRange<float> (0.05f, 30.0f, 0.001f, 0.4f), 10.0f, AudioParameterFloatAttributes().withLabel ("ms")));
+        expRange (0.05f, 30.0f), 0.05f * std::pow (600.0f, 0.5f), AudioParameterFloatAttributes().withLabel ("ms")));
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ids::release, v }, "Release",
-        NormalisableRange<float> (50.0f, 3500.0f, 0.1f, 0.4f), 200.0f, AudioParameterFloatAttributes().withLabel ("ms")));
+        expRange (50.0f, 3500.0f), 50.0f * std::pow (70.0f, 0.5f), AudioParameterFloatAttributes().withLabel ("ms")));
     p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { ids::output, v }, "Output",
         NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f, AudioParameterFloatAttributes().withLabel ("dB")));
     p.push_back (std::make_unique<AudioParameterChoice> (ParameterID { ids::ratio, v }, "Ratio",
@@ -153,19 +164,18 @@ void PurrrstressorProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffe
     }
 
     grMeterDb.store (core.grDb());
-    inPeak.store (inPk);
-    outPeak.store (outPk);
+    raiseTo (grPeakDb, core.grDb());
+    raiseTo (inPeak, inPk);
+    raiseTo (outPeak, outPk);
     thdRatio.store (core.thd());
     redline.store (core.redline());
     trimDb.store (core.trimDb());
     matchDb.store (core.levelMatchDb());
-    if (outPk >= 1.0f) clipLatch.store (true);
 }
 
 AudioProcessorEditor* PurrrstressorProcessor::createEditor()
 {
-    // Development stand-in only. The real editor is ported from the approved mockup.
-    return new GenericAudioProcessorEditor (*this);
+    return new PurrrstressorEditor (*this);
 }
 
 void PurrrstressorProcessor::getStateInformation (MemoryBlock& dest)

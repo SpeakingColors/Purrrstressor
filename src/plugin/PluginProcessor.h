@@ -31,6 +31,7 @@ namespace setting
     inline constexpr const char* tips = "tips";       // info bubbles
     inline constexpr const char* power = "power";     // power saving redraw
     inline constexpr const char* scale = "scale";     // window scale, 1.0 = 100 %
+    inline constexpr const char* preset = "preset";   // name of the loaded preset
 }
 
 class PurrrstressorProcessor : public juce::AudioProcessor
@@ -66,18 +67,19 @@ public:
 
     // Meter data for the editor (written on the audio thread, read by the editor timer).
     std::atomic<float> grMeterDb { 0.0f };   // gain reduction, positive dB (active in bypass too, like the hardware)
-    std::atomic<float> inPeak { 0.0f };      // linear peak of the last block, input
-    std::atomic<float> outPeak { 0.0f };     // linear peak of the last block, output
+    std::atomic<float> grPeakDb { 0.0f };    // largest gain reduction since the editor last read it (exchange to 0)
+    std::atomic<float> inPeak { 0.0f };      // linear peak since the editor last read it (exchange to 0), input
+    std::atomic<float> outPeak { 0.0f };     // same for the output
     std::atomic<float> thdRatio { 0.0f };    // 0.01 = 1 %
     std::atomic<bool>  redline { false };
     std::atomic<float> trimDb { 0.0f };      // Auto Trim, 0 or negative
     std::atomic<float> matchDb { 0.0f };     // Level Match gain
-    std::atomic<bool>  clipLatch { false };  // set when the output reaches 0 dBFS, cleared by the editor
 
     // Settings stored in the state tree.
     juce::var getSetting (const char* key, const juce::var& fallback) const;
     void setSetting (const char* key, const juce::var& v);
     void resetAutoTrim() { resetTrimRequested.store (true); }
+    static void raiseTo (std::atomic<float>& a, float v) { float c = a.load(); while (v > c && ! a.compare_exchange_weak (c, v)) {} }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();

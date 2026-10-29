@@ -42,6 +42,34 @@ jobs:
           name: Purrrstressor-linux-vst3
           path: build/Purrrstressor_artefacts/Release/VST3/Purrrstressor.vst3
 
+  editor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev xvfb
+      - name: Build the snapshot tool
+        run: |
+          cmake -S . -B build-snap -DCMAKE_BUILD_TYPE=Release -DPURR_BUILD_SNAPSHOT=ON
+          cmake --build build-snap --target PurrrSnapshot -j4
+      - name: Self tests (parameter mapping, state round trip, editor create and resize)
+        run: xvfb-run -a build-snap/PurrrSnapshot_artefacts/Release/PurrrSnapshot --selftest
+      - name: Render the real window
+        run: |
+          mkdir -p shots
+          S=build-snap/PurrrSnapshot_artefacts/Release/PurrrSnapshot
+          xvfb-run -a $S shots/look-C.png 1.0 C none 366
+          xvfb-run -a $S shots/look-A.png 1.0 A none 366
+          xvfb-run -a $S shots/look-B.png 1.0 B none 366
+          xvfb-run -a $S shots/small.png 0.5 C none 60
+          for d in settings guide about presets save export import; do xvfb-run -a $S shots/dialog-$d.png 1.0 C $d 30; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Purrrstressor-editor-snapshots
+          path: shots
+
   windows:
     runs-on: windows-latest
     steps:
