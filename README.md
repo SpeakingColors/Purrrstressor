@@ -1,6 +1,6 @@
 # Purrrstressor
 
-A free, open source, cat-themed compressor plugin (VST3) inspired by the behaviour of the Empirical Labs Distressor. Our own DSP, written from the public manuals. Not affiliated with or endorsed by Empirical Labs or Universal Audio.
+A free, open source, cat-themed compressor plugin (VST3) inspired by the behaviour of the Empirical Labs Distressor. Our own DSP, written from the public manuals.
 
 <p align="center"><img src="docs/screenshot.png" width="900" alt="Purrrstressor window, rendered from the real plugin editor"></p>
 <p align="center"><sub>The real plugin window (look C), rendered offscreen by the build tools.</sub></p>

@@ -323,7 +323,7 @@ void Modal::openAbout()
     auto p = std::make_unique<Panel> (*this, host, "About & Support", 760);
     auto& c = host.context();
     p->textRow ({ { "Purrrstressor", true }, { String (" by Studio 87, version ") + JucePlugin_VersionString + ". Free and open source, licence AGPL-3.0-or-later. Collects nothing and never uses the network." } });
-    p->textRow ({ { "A compressor inspired by the behaviour of a classic hardware unit, written from public manuals. Not affiliated with or endorsed by Empirical Labs or Universal Audio." } });
+    p->textRow ({ { "A compressor inspired by the behaviour of a classic hardware unit, written from public manuals." } });
     p->textRow ({ { "Your presets are saved here:", true }, { "\nLinux  " }, { "~/.local/share/Studio 87/Purrrstressor/presets", false, true },
                   { "\nWindows  " }, { "%APPDATA%\\Studio 87\\Purrrstressor\\presets", false, true },
                   { "\nmacOS  " }, { "~/Library/Application Support/Studio 87/Purrrstressor/presets", false, true } });

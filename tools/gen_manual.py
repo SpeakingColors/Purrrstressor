@@ -96,7 +96,7 @@ code,kbd{font-family:"JetBrains Mono",Consolas,monospace;font-size:13px;backgrou
 </style></head><body><main>
 <h1>Purrrstressor</h1>
 <p class="dim">Manual for version @VER@. Studio 87. Free and open source (AGPL-3.0-or-later). Collects nothing, never uses the network.</p>
-<p>A cat-themed compressor in the style of the Empirical Labs Distressor: our own DSP, written from the public manuals. Not affiliated with or endorsed by Empirical Labs or Universal Audio.</p>
+<p>A cat-themed compressor in the style of the Empirical Labs Distressor: our own DSP, written from the public manuals.</p>
 <img src="manual/tour.png" alt="The Purrrstressor window with numbered controls">
 
 <h2>Quick start</h2>

@@ -301,7 +301,7 @@ const ladLeds=[];
 (function buildTop(){
  const add=(c,x,y,h,s)=>{const e=el('div',c,h||'');e.style.left=x+'px';e.style.top=y+'px';if(s)Object.assign(e.style,s);top.appendChild(e);return e};
  const lbl=add('lbl',14,16,'Gain reduction (dB)');
- LAD.forEach((v,i)=>{const x=30+i*27,y=48;const l=add('led',x,y);l.style.color=ladColor(v);ladLeds.push(l);add('lnum',x,y-17,String(v))});
+ LAD.forEach((v,i)=>{const x=30+i*27,y=48;const l=add('led',x,y);l.style.color=ladColor(v);ladLeds.push(l);add('lnum',x,y-13,String(v))});
  const rLeds=[];
  RLAB.forEach((t,i)=>{const x=58+i*62,y=118;const l=add('led',x,y);l.style.color=i===7?'var(--b)':'var(--g)';rLeds.push(l);add('lnum',x,y-17,t==='10:1'?'10:1 Opto':t);
   const h=el('button','led-hit');h.style.left=x+'px';h.style.top=(y-9)+'px';h.style.height='48px';h.setAttribute('aria-label','Ratio '+t);h.dataset.tip=['1:1 saturation only, no compression.','2:1 long gentle knee.','3:1 gentle knee.','4:1 general purpose.','6:1 a good place to start.','10:1 Opto, program dependent release up to about 20 s.','20:1 hard limiting curve.','Nuke: brick wall limiting.'][i];h.onclick=()=>{st.ratio=i;syncUI()};top.appendChild(h)});
@@ -482,7 +482,7 @@ $('#bGuide').onclick=()=>openModal('Guide',`<p><b>Signal flow</b> (as in the man
 <p><b>Where to start:</b> 6:1, every knob at 5 (the first preset). Raise Input for more compression. Ratio and Release matter most. Use 10:1 Opto with Attack 10 and Release 0 for a slow, smooth opto feel.</p>`,null);
 /* About */
 $('#bAbout').onclick=()=>openModal('About & Support',`<p><b>Purrrstressor</b> by Studio 87, version 0.1 (design mockup). Free and open source, licence AGPL-3.0-or-later. Collects nothing and never uses the network.</p>
-<p>A compressor inspired by the behaviour of a classic hardware unit, written from public manuals. Not affiliated with or endorsed by Empirical Labs or Universal Audio.</p>
+<p>A compressor inspired by the behaviour of a classic hardware unit, written from public manuals.</p>
 <p><b>Your presets are saved here:</b><br>Linux <kbd>~/.local/share/Studio 87/Purrrstressor/presets</kbd><br>Windows <kbd>%APPDATA%\\Studio 87\\Purrrstressor\\presets</kbd><br>macOS <kbd>~/Library/Application Support/Studio 87/Purrrstressor/presets</kbd></p>
 <p><b>Install and uninstall:</b> the installer puts the VST3 in the standard folder for your system. The uninstaller removes everything it installed and asks before touching your presets (it keeps them by default).</p>
 <p><a href="https://ko-fi.com/studio87" target="_blank" rel="noopener" style="color:var(--selb)">Support Studio 87 on Ko-fi</a>, entirely optional. Nothing is locked.</p>`,null);
