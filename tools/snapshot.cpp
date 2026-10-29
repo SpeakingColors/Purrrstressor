@@ -5,7 +5,39 @@
 #include "../src/editor/PluginEditor.h"
 
 // Checks that need the plugin classes but no window: knob mappings and saved state round trip.
-static int selfTest()
+static void setFixtureValues (PurrrstressorProcessor& a)
+{
+    auto set = [&a] (const char* id, float real) { auto* p = a.apvts.getParameter (id); p->setValueNotifyingHost (p->convertTo0to1 (real)); };
+    set ("input", 21.0f); set ("attack", 0.5f); set ("release", 900.0f); set ("output", -3.0f); set ("ratio", 7); set ("mix", 40.0f);
+    set ("detHP", 1); set ("detBand", 1); set ("link", 0); set ("audioHP", 1); set ("dist", 2); set ("headroom", 6);
+    set ("autoTrim", 1); set ("levelMatch", 1);
+    a.setSetting (setting::look, "B"); a.setSetting (setting::detTap, 1); a.setSetting (setting::preset, "Vocal Bite");
+}
+
+// Saved state of state version 1 must keep loading (tests/fixtures/state-v1.xml).
+static int fixtureTest (const juce::File& f)
+{
+    int bad = 0;
+    auto check = [&] (bool ok, const char* what) { std::printf ("%s: %s\n", ok ? "ok  " : "FAIL", what); if (! ok) ++bad; };
+    PurrrstressorProcessor p;
+    auto xml = juce::XmlDocument::parse (f);
+    check (xml != nullptr, "fixture parses");
+    if (xml == nullptr) return 1;
+    juce::MemoryBlock mb;
+    juce::AudioProcessor::copyXmlToBinary (*xml, mb);
+    p.setStateInformation (mb.getData(), (int) mb.getSize());
+    auto real = [&p] (const char* id) { return p.apvts.getRawParameterValue (id)->load(); };
+    check (std::abs (real ("input") - 21.0f) < 0.02f && std::abs (real ("attack") - 0.5f) < 0.01f && std::abs (real ("release") - 900.0f) < 1.0f
+               && std::abs (real ("output") + 3.0f) < 0.02f, "knob values from the v1 fixture");
+    check ((int) real ("ratio") == 7 && std::abs (real ("mix") - 40.0f) < 0.1f && real ("detHP") > 0.5f && real ("detBand") > 0.5f && real ("link") < 0.5f
+               && real ("audioHP") > 0.5f && (int) real ("dist") == 2 && (int) real ("headroom") == 6 && real ("autoTrim") > 0.5f && real ("levelMatch") > 0.5f,
+           "switch and choice values from the v1 fixture");
+    check (p.getSetting (setting::look, "C").toString() == "B" && (int) p.getSetting (setting::detTap, 0) == 1 && p.getSetting (setting::preset, "").toString() == "Vocal Bite",
+           "settings from the v1 fixture");
+    return bad;
+}
+
+static int selfTest (const juce::File& fixture)
 {
     int bad = 0;
     auto check = [&] (bool ok, const char* what) { std::printf ("%s: %s\n", ok ? "ok  " : "FAIL", what); if (! ok) ++bad; };
@@ -55,6 +87,7 @@ static int selfTest()
         ed->setSize (1800, 816);
         check (ed->getWidth() == 1800, "editor creates and resizes");
     }
+    if (fixture != juce::File()) bad += fixtureTest (fixture);
     std::printf (bad == 0 ? "ALL SELF TESTS PASSED\n" : "SELF TESTS FAILED\n");
     return bad;
 }
@@ -62,7 +95,15 @@ static int selfTest()
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
-    if (argc > 1 && juce::String (argv[1]) == "--selftest") return selfTest() == 0 ? 0 : 1;
+    if (argc > 2 && juce::String (argv[1]) == "--write-fixture")
+    {
+        PurrrstressorProcessor p; setFixtureValues (p);
+        auto state = p.apvts.copyState(); state.setProperty ("stateVersion", 1, nullptr);
+        if (auto xml = state.createXml()) juce::File (argv[2]).replaceWithText (xml->toString());
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "--selftest")
+        return selfTest (argc > 2 ? juce::File (argv[2]) : juce::File()) == 0 ? 0 : 1;
     PurrrstressorProcessor proc;
     proc.prepareToPlay (48000.0, 800);
     if (argc > 3) proc.setSetting (setting::look, juce::String (argv[3]));

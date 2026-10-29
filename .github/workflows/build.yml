@@ -55,7 +55,7 @@ jobs:
           cmake -S . -B build-snap -DCMAKE_BUILD_TYPE=Release -DPURR_BUILD_SNAPSHOT=ON
           cmake --build build-snap --target PurrrSnapshot -j4
       - name: Self tests (parameter mapping, state round trip, editor create and resize)
-        run: xvfb-run -a build-snap/PurrrSnapshot_artefacts/Release/PurrrSnapshot --selftest
+        run: xvfb-run -a build-snap/PurrrSnapshot_artefacts/Release/PurrrSnapshot --selftest tests/fixtures/state-v1.xml
       - name: Render the real window
         run: |
           mkdir -p shots

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<PURRRSTRESSOR look="B" detTap="1" preset="Vocal Bite" stateVersion="1">
+  <PARAM id="attack" value="0.5000000596046448"/>
+  <PARAM id="audioHP" value="1.0"/>
+  <PARAM id="autoTrim" value="1.0"/>
+  <PARAM id="bypass" value="0.0"/>
+  <PARAM id="detBand" value="1.0"/>
+  <PARAM id="detHP" value="1.0"/>
+  <PARAM id="dist" value="2.0"/>
+  <PARAM id="headroom" value="6.0"/>
+  <PARAM id="input" value="21.0"/>
+  <PARAM id="levelMatch" value="1.0"/>
+  <PARAM id="link" value="0.0"/>
+  <PARAM id="mix" value="40.0"/>
+  <PARAM id="output" value="-3.0"/>
+  <PARAM id="ratio" value="7.0"/>
+  <PARAM id="release" value="900.0001220703125"/>
+</PURRRSTRESSOR>
