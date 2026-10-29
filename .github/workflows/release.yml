@@ -69,6 +69,8 @@ jobs:
           cmake -S . -B build -DPURR_VERSION="$VER"
           cmake --build build --config Release
       - name: Installer
+        env:
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           VER="${TAG#v}"; [ -z "$VER" ] && VER="0.1.0"
           choco install innosetup -y --no-progress
