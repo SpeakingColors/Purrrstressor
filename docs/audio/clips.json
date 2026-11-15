@@ -1,0 +1,65 @@
+[
+  {
+    "before": "purrrstressor-before-drums.mp3",
+    "after": "purrrstressor-after-drums-hard-kick-punch.mp3",
+    "preset": "Hard Kick Punch",
+    "source": "Drum loop",
+    "description": "Drum loop through the real Purrrstressor C++ core with the factory preset Hard Kick Punch (Drum; kick, hard dance). The After clip is level matched to the Before clip (-3.6 dB)."
+  },
+  {
+    "before": "purrrstressor-before-bass.mp3",
+    "after": "purrrstressor-after-bass-hard-kick-punch.mp3",
+    "preset": "Hard Kick Punch",
+    "source": "Bass line",
+    "description": "Bass line through the real Purrrstressor C++ core with the factory preset Hard Kick Punch (Drum; kick, hard dance). The After clip is level matched to the Before clip (-1.9 dB)."
+  },
+  {
+    "before": "purrrstressor-before-mix.mp3",
+    "after": "purrrstressor-after-mix-hard-kick-punch.mp3",
+    "preset": "Hard Kick Punch",
+    "source": "Full mix loop",
+    "description": "Full mix loop through the real Purrrstressor C++ core with the factory preset Hard Kick Punch (Drum; kick, hard dance). The After clip is level matched to the Before clip (-2.7 dB)."
+  },
+  {
+    "before": "purrrstressor-before-drums.mp3",
+    "after": "purrrstressor-after-drums-parallel-squash.mp3",
+    "preset": "Parallel Squash",
+    "source": "Drum loop",
+    "description": "Drum loop through the real Purrrstressor C++ core with the factory preset Parallel Squash (Bus; parallel, heavy). The After clip is level matched to the Before clip (+1.5 dB)."
+  },
+  {
+    "before": "purrrstressor-before-bass.mp3",
+    "after": "purrrstressor-after-bass-parallel-squash.mp3",
+    "preset": "Parallel Squash",
+    "source": "Bass line",
+    "description": "Bass line through the real Purrrstressor C++ core with the factory preset Parallel Squash (Bus; parallel, heavy). The After clip is level matched to the Before clip (+1.6 dB)."
+  },
+  {
+    "before": "purrrstressor-before-mix.mp3",
+    "after": "purrrstressor-after-mix-parallel-squash.mp3",
+    "preset": "Parallel Squash",
+    "source": "Full mix loop",
+    "description": "Full mix loop through the real Purrrstressor C++ core with the factory preset Parallel Squash (Bus; parallel, heavy). The After clip is level matched to the Before clip (+1.6 dB)."
+  },
+  {
+    "before": "purrrstressor-before-drums.mp3",
+    "after": "purrrstressor-after-drums-clean-glue.mp3",
+    "preset": "Clean Glue",
+    "source": "Drum loop",
+    "description": "Drum loop through the real Purrrstressor C++ core with the factory preset Clean Glue (Bus; glue, mix bus). The After clip is level matched to the Before clip (-3.6 dB)."
+  },
+  {
+    "before": "purrrstressor-before-bass.mp3",
+    "after": "purrrstressor-after-bass-clean-glue.mp3",
+    "preset": "Clean Glue",
+    "source": "Bass line",
+    "description": "Bass line through the real Purrrstressor C++ core with the factory preset Clean Glue (Bus; glue, mix bus). The After clip is level matched to the Before clip (-3.2 dB)."
+  },
+  {
+    "before": "purrrstressor-before-mix.mp3",
+    "after": "purrrstressor-after-mix-clean-glue.mp3",
+    "preset": "Clean Glue",
+    "source": "Full mix loop",
+    "description": "Full mix loop through the real Purrrstressor C++ core with the factory preset Clean Glue (Bus; glue, mix bus). The After clip is level matched to the Before clip (-4.0 dB)."
+  }
+]
