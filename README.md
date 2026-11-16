@@ -43,10 +43,6 @@ xvfb-run -a build/PurrrSnapshot_artefacts/Release/PurrrSnapshot --selftest
 
 `tools/dump_layout.py` and `tools/gen_layout.py` read the approved mockup page and generate `src/editor/Layout.h`, so the window follows the mockup.
 
-## Privacy
-
-Collects nothing. No network access.
-
 ## Licence
 
 AGPL-3.0-or-later (JUCE is used under AGPLv3).
